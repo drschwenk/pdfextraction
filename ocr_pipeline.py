@@ -3,6 +3,9 @@ import json
 import os
 from binascii import b2a_hex
 
+from collections import OrderedDict
+from collections import defaultdict
+
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdfdocument import PDFDocument
 from pdfminer.pdfpage import PDFPage
@@ -13,7 +16,6 @@ from pdfminer.converter import PDFPageAggregator
 
 
 def determine_image_type (stream_first_4_bytes):
-    """Find out the image file type based on the magic number comparison of the first 4 (or 2) bytes"""
     file_type = None
     bytes_as_hex = b2a_hex(stream_first_4_bytes)
     if bytes_as_hex.startswith('ffd8'):
@@ -27,44 +29,72 @@ def determine_image_type (stream_first_4_bytes):
     return file_type
 
 
-def save_image (lt_image, page_number, images_folder):
-    """Try to save the image data from this LTImage object, and return the file name, if successful"""
+def save_image(lt_image, page_n, book, images_folder):
     result = None
     if lt_image.stream:
         file_stream = lt_image.stream.get_rawdata()
         if file_stream:
             file_ext = determine_image_type(file_stream[0:4])
             if file_ext:
-                file_name = ''.join([str(page_number), '_', lt_image.name, file_ext])
+                file_name = book + '_' + str(page_n) + file_ext
                 if write_file(images_folder, file_name, file_stream, flags='wb'):
                     result = file_name
     return result
 
 
-def write_file (folder, filename, filedata, flags='w'):
-    """Write the file data to the folder and filename combination
-    (flags: 'w' for write text, 'wb' for write binary, use 'a' instead of 'w' for append)"""
+def write_file(folder, filename, filedata, flags='w'):
     result = False
     if os.path.isdir(folder):
-        try:
-            file_obj = open(os.path.join(folder, filename), flags)
-            file_obj.write(filedata)
-            file_obj.close()
-            result = True
-        except IOError:
-            pass
+        file_obj = open(os.path.join(folder, filename), flags)
+        file_obj.write(filedata)
+        file_obj.close()
+        result = True
     return result
 
 
-def write_image_file(layout, page_n, dir_name):
+def write_image_file(layout, page_n, book, dir_name):
+
     page_image = layout._objs[-1]._objs[0]
-    save_image(page_image, page_n, dir_name)
+    save_image(page_image, page_n, book, dir_name)
     return
 
 
-def write_annotation(ocr_detections):
-    print(ocr_detections)
-    pass
+def write_annotation_file(ocr_results, page_n, book, annotations_folder):
+
+    def point_to_tuple(box):
+        return tuple(OrderedDict(sorted(box.items())).values())
+
+    def get_bbox_tuples(detection):
+        return map(point_to_tuple, detection['rectangle'])
+
+    ids = 1
+    annotation = defaultdict(defaultdict)
+    for box in ocr_results['detections']:
+        box_id = 'T' + str(ids)
+        bounding_rectangle = get_bbox_tuples(box)
+        annotation['text'][box_id] = {
+            "box_id": box_id,
+            "category": "unlabeled",
+            "contents": box['value'],
+            "score": box['score'],
+            "rectangle": bounding_rectangle,
+            "source": {
+                "type": "object",
+                "$schema": "http://json-schema.org/draft-04/schema",
+                "additionalProperties": False,
+                "properties": [
+                    {"book_source": "sb"},
+                    {"page_n": 149}
+                ]
+            }
+        }
+        ids += 1
+
+    file_ext = ".json"
+    file_path = annotations_folder + '/' + book + '_' + str(page_n) + file_ext
+    with open(file_path, 'wb') as f:
+        json.dump(annotation, f)
+    return
 
 
 def query_vision_ocr(image_url, merge_boxes=True, include_merged_components=False, as_json=True):
@@ -91,10 +121,11 @@ def process_book(pdf_file, page_range, line_overlap,
                  line_margin,
                  word_margin,
                  boxes_flow):
-
+    source_dir = 'pdfs/'
+    book_name = pdf_file.replace('.pdf', '')
     laparams = LAParams(line_overlap, char_margin, line_margin, word_margin, boxes_flow)
 
-    with open(pdf_file, 'r') as fp:
+    with open(source_dir + pdf_file, 'r') as fp:
         parser = PDFParser(fp)
         document = PDFDocument(parser)
         rsrcmgr = PDFResourceManager()
@@ -105,9 +136,10 @@ def process_book(pdf_file, page_range, line_overlap,
             ocr_detections = json.load(f)
 
         for page_n, page in enumerate(PDFPage.create_pages(document)):
-            if not page_range or page_range[0] <= page_n <= page_range[1]:
+            if not page_range or (page_range[0] <= page_n <= page_range[1]):
                 interpreter.process_page(page)
                 layout = device.get_result()
-                write_image_file(layout, page_n, 'page_images')
-                write_annotation(ocr_detections)
+                # write_image_file(layout, page_n, pdf_file, 'page_images', book_name)
+                write_image_file(layout, page_n, book_name, 'page_images')
+                write_annotation_file(ocr_detections, page_n, book_name, 'annotations')
     return
