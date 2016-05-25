@@ -1,5 +1,3 @@
-import jsonschema
-
 page_schema = {
     "type": "object",
     "$schema": "http://json-schema.org/draft-04/schema",
@@ -18,7 +16,7 @@ page_schema = {
                             "type": "string"
                         },
                         "category": {
-                                "enum": ["header/topic", "definition", "discussion", "question", "question",
+                                "enum": ["header/topic", "definition", "discussion", "question", "answer",
                                          "figure_label", "unlabeled"]
                             },
                         "contents": {
@@ -66,12 +64,11 @@ page_schema = {
         },
         "figure": {
             "type": "object",
-            "additionalProperties": False
         },
-        "linkage": {
+        "relationship": {
             "type": "object",
-            "additionalProperties": False
         }
-    }
+    },
+    "required properties": ["text", "figure", "relationship"]
 }
 
