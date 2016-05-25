@@ -1,6 +1,9 @@
 import json
 from collections import OrderedDict
 from collections import defaultdict
+import requests
+
+from ocr_pipeline import assemble_url
 
 
 class Detection:
@@ -120,7 +123,7 @@ def make_annotation_json(box):
 
 def merge_boxes(detections, y_threshold=1.0, x_threshold=1.0):
     rectangle_groups = []
-    int_keys = {int(k[1:]):v for k,v in detections.items()}
+    int_keys = {int(k[1:]): v for k,v in detections.items()}
     sdets = OrderedDict(sorted(int_keys.items()))
     for name, current_d in sdets.items():
         found_group = False
@@ -151,5 +154,26 @@ def merge_boxes(detections, y_threshold=1.0, x_threshold=1.0):
             new_detections.append(new_detection)
     return new_detections
 
-# point_to_tuple = lambda box: tuple(box)
-# get_bbox_tuples = lambda detection: map(point_to_tuple, detection['rectangle'])
+
+def merge_single_page(file_path, y_tol):
+    with open(file_path, 'r') as f:
+        annotations = json.load(f)
+    merged_annotation = merge_boxes(annotations['text'], y_tol)
+    return merged_annotation
+
+
+def merge_single_book(book_name, (start_n, stop_n), destination_path, y_tol):
+    base_path = './ai2-vision-turk-data/textbook-annotation-test/unmerged-annotations/'
+    for page_n in range(start_n, stop_n):
+        file_path = base_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
+        merged_text_anno = merge_single_page(file_path, y_tol)
+        merged_text_named = {'T'+str(i + 1): merged_text_anno[i] for i in range(len(merged_text_anno))}
+        for name, detection in merged_text_named.items():
+            detection['box_id'] = name
+        new_file_path = destination_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
+        full_anno = {"text": merged_text_named, "figure": {}, "relationship": {}}
+
+        with open(new_file_path, 'w') as f:
+            json.dump(full_anno, f)
+    return
+

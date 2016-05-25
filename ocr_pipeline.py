@@ -133,6 +133,7 @@ def write_annotation_file(ocr_results, page_n, book, annotations_folder):
 
 
 def query_vision_ocr(image_url, merge_boxes=False, include_merged_components=False, as_json=True):
+    print image_url
     req = requests.get(image_url)
     tpi = Image.open(io.BytesIO(req.content))
     print(tpi.info, tpi.size, tpi.size[0]*tpi.size[1])
@@ -178,20 +179,23 @@ def process_book(pdf_file, page_range, line_overlap,
                 write_image_file(layout, page_n, book_name, 'smaller_page_images', 0.66)
 
 
+def assemble_url(page_number, book_name, base_url):
+    return base_url + book_name.replace('+', '%2B') + '_' + str(page_number) + '.jpeg'
+
+
+def check_response(url):
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response
+    else:
+        return False
+
+
 def perform_ocr(pdf_file, annotation_dir, (start_n, stop_n)):
     book_name = pdf_file.replace('.pdf', '')
 
-    def assemble_url(page_number):
-        # base_url = 'https://s3-us-west-2.amazonaws.com/ai2-vision-turk-data/textbook-annotation-test/page-images/'
-        base_url = 'https://s3-us-west-2.amazonaws.com/ai2-vision-turk-data/textbook-annotation-test/smaller-page-images/'
-        return base_url + book_name.replace('+', '%2B') + '_' + str(page_number) + '.jpeg'
+    base_url = 'https://s3-us-west-2.amazonaws.com/ai2-vision-turk-data/textbook-annotation-test/smaller-page-images/'
 
-    def check_response(url):
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response
-        else:
-            return False
     page_n = start_n
     while page_n <= stop_n:
         file_ext = ".json"
@@ -200,8 +204,8 @@ def perform_ocr(pdf_file, annotation_dir, (start_n, stop_n)):
 
             print(book_name, page_n)
             try:
-                print(assemble_url(page_n))
-                ocr_response = query_vision_ocr(assemble_url(page_n))
+                print(assemble_url(page_n, book_name, base_url))
+                ocr_response = query_vision_ocr(assemble_url(page_n, book_name, base_url))
                 write_annotation_file(ocr_response, page_n, book_name, annotation_dir)
             except ValueError:
                 print('ocr service error')
