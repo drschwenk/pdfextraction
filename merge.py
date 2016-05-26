@@ -83,6 +83,53 @@ def get_score(box):
     return box['score']
 
 
+def average_character_length(box):
+    return (end_x(box) - start_x(box)) / float(len(get_value(box)))
+
+
+def horizontal_overlap(this_box, other_box, merge_p):
+    boxes_x_coords = [[start_x(this_box), end_x(this_box)], [start_x(other_box), end_x(other_box)]]
+    ordered_boxes = sorted(boxes_x_coords)
+    overlap = ordered_boxes[0][1] - ordered_boxes[1][0]
+    comp_box_width = max(width(this_box), width(other_box))
+    return overlap / float(comp_box_width) > merge_p['overlap_x']
+
+
+def vertical_overlap(this_box, other_box, merge_p):
+    boxes_y_coords = [[start_y(this_box), end_y(this_box)], [start_y(other_box), end_y(other_box)]]
+    ordered_boxes = sorted(boxes_y_coords)
+    overlap = ordered_boxes[0][1] - ordered_boxes[1][0]
+    comp_box_width = max(height(this_box), height(other_box))
+    return overlap / float(comp_box_width) > merge_p['overlap_y']
+
+
+def horizontal_near(this_detection, other_detection, merge_p):
+    x_distance = min(abs(start_x(other_detection) - end_x(this_detection)), abs(start_x(this_detection) - end_x(other_detection)))
+    comp_char_len = min(average_character_length(other_detection), average_character_length(this_detection))
+    return x_distance < comp_char_len * merge_p['near_x']
+
+
+def vertical_near(this_box, other_box, merge_p):
+    y_distance = min(abs(start_y(other_box) - end_y(this_box)), abs(start_y(this_box) - end_y(other_box)))
+    comp_char_len = min(average_character_length(other_box), average_character_length(this_box))
+    return y_distance < comp_char_len * merge_p['near_y']
+
+
+def start_near(this_box, other_box, merge_p):
+    start_dist = abs(start_x(this_box) - start_x(other_box))
+    return start_dist < min(average_character_length(this_box), average_character_length(other_box)) * merge_p['start_x']
+
+
+def merge_same_line(this_box, other_box, merge_p):
+    return horizontal_near(this_box, other_box, merge_p) and vertical_overlap(this_box, other_box, merge_p)
+
+
+def merge_adjacent_lines(this_box, other_box, merge_p):
+    comp_all = vertical_near(this_box, other_box, merge_p) and horizontal_overlap(this_box, other_box, merge_p)
+    comp_start = vertical_near(this_box, other_box, merge_p) and start_near(this_box, other_box, merge_p)
+    return comp_all or comp_start
+
+
 def make_annotation_json(box):
     def point_to_tuple(box):
         return tuple(OrderedDict(sorted(box.items())).values())
@@ -119,57 +166,100 @@ def make_annotation_json(box):
     annotation['figure'] = {}
     annotation['relationship'] = {}
     return annotation['text'].values()[0]
+# if y_distance < (height(d) * y_threshold) and start_x(current_d) < end_x(d) *x_threshold and end_x(current_d)*x_threshold > start_x(d):
+                    # if y_distance < (height(d) * y_threshold):
 
 
-def merge_boxes(detections, y_threshold=1.0, x_threshold=1.0):
-    rectangle_groups = []
+def merge_boxes(detections, merge_params):
     int_keys = {int(k[1:]): v for k,v in detections.items()}
-    sdets = OrderedDict(sorted(int_keys.items()))
-    for name, current_d in sdets.items():
-        found_group = False
-        for g in rectangle_groups:
+    sorted_detections = OrderedDict(sorted(int_keys.items()))
+
+    def merge_horizontal_pass(detected_boxes, merge_p):
+        rectangle_groups = []
+        for name, current_d in detected_boxes.items():
+            found_group = False
+            for g in rectangle_groups:
+                if not found_group:
+                    for d in g:
+                        if merge_same_line(current_d, d, merge_p):
+                            g.append(current_d)
+                            found_group = True
+                            break
             if not found_group:
-                for d in g:
-                    y_distance = min(abs(start_y(d) - end_y(current_d)), abs(start_y(current_d) - end_y(d)))
-                    if y_distance < (height(d) * y_threshold) and start_x(current_d) < end_x(d) *x_threshold and end_x(current_d)*x_threshold > start_x(d):
-                        g.append(current_d)
-                        found_group = True
-                        break
-        if not found_group:
-            rectangle_groups.append([current_d])
+                rectangle_groups.append([current_d])
 
-    new_detections = []
-    for g in rectangle_groups:
-        if len(g) == 1:
-            new_detections.append(g[0])
-        else:
-            min_x = min(map(lambda x: start_x(x), g))
-            max_x = max(map(lambda x: end_x(x), g))
-            min_y = min(map(lambda x: start_y(x), g))
-            max_y = max(map(lambda x: end_y(x), g))
-            words = ' '.join(map(lambda x: get_value(x), g))
-            score = ' '.join(map(lambda x: str(get_score(x)), g))
-            detection = Detection(min_x, min_y, max_x, max_y, words, score)
-            new_detection = make_annotation_json(detection.to_JSON())
-            new_detections.append(new_detection)
-    return new_detections
+        new_detections = []
+        for g in rectangle_groups:
+            if len(g) == 1:
+                new_detections.append(g[0])
+            else:
+                min_x = min(map(lambda x: start_x(x), g))
+                max_x = max(map(lambda x: end_x(x), g))
+                min_y = min(map(lambda x: start_y(x), g))
+                max_y = max(map(lambda x: end_y(x), g))
+                words = ' '.join(map(lambda x: get_value(x), g))
+                score = ' '.join(map(lambda x: str(get_score(x)), g))
+                detection = Detection(min_x, min_y, max_x, max_y, words, score)
+                new_detection = make_annotation_json(detection.to_JSON())
+                new_detections.append(new_detection)
+
+        return new_detections
+
+    def merge_vertical_pass(detected_boxes, merge_p):
+        rectangle_groups = []
+        for current_d in detected_boxes:
+            found_group = False
+            for g in rectangle_groups:
+                if not found_group:
+                    for d in g:
+                        if merge_adjacent_lines(current_d, d, merge_p):
+                            g.append(current_d)
+                            found_group = True
+                            break
+            if not found_group:
+                rectangle_groups.append([current_d])
+
+        new_detections = []
+        for g in rectangle_groups:
+            if len(g) == 1:
+                new_detections.append(g[0])
+            else:
+                min_x = min(map(lambda x: start_x(x), g))
+                max_x = max(map(lambda x: end_x(x), g))
+                min_y = min(map(lambda x: start_y(x), g))
+                max_y = max(map(lambda x: end_y(x), g))
+                words = ' '.join(map(lambda x: get_value(x), g))
+                score = ' '.join(map(lambda x: str(get_score(x)), g))
+                detection = Detection(min_x, min_y, max_x, max_y, words, score)
+                new_detection = make_annotation_json(detection.to_JSON())
+                new_detections.append(new_detection)
+
+        return new_detections
+
+    horizontal_pass_dets = merge_horizontal_pass(sorted_detections, merge_params)
+    vertical_pass_combined = merge_vertical_pass(horizontal_pass_dets, merge_params)
+    return vertical_pass_combined
 
 
-def merge_single_page(file_path, y_tol):
+def merge_single_page(file_path, merge_params):
     with open(file_path, 'r') as f:
         annotations = json.load(f)
-    merged_annotation = merge_boxes(annotations['text'], y_tol)
+    merged_annotation = merge_boxes(annotations['text'], merge_params)
     return merged_annotation
 
 
-def merge_single_book(book_name, (start_n, stop_n), destination_path, y_tol):
+def merge_single_book(book_name, (start_n, stop_n), destination_path, merge_params):
     base_path = './ai2-vision-turk-data/textbook-annotation-test/unmerged-annotations/'
+
+    # for page_n in range(20+8, 21+8):
     for page_n in range(start_n, stop_n):
         file_path = base_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
-        merged_text_anno = merge_single_page(file_path, y_tol)
+        merged_text_anno = merge_single_page(file_path, merge_params)
         merged_text_named = {'T'+str(i + 1): merged_text_anno[i] for i in range(len(merged_text_anno))}
+
         for name, detection in merged_text_named.items():
             detection['box_id'] = name
+
         new_file_path = destination_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
         full_anno = {"text": merged_text_named, "figure": {}, "relationship": {}}
 
