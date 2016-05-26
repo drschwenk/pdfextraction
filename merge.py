@@ -115,19 +115,49 @@ def vertical_near(this_box, other_box, merge_p):
     return y_distance < comp_char_len * merge_p['near_y']
 
 
+def merge_contained(this_box, other_box, merge_p):
+    this_coords = [start_x(this_box), start_y(this_box), end_x(this_box), end_y(this_box)]
+    other_coords = [start_x(other_box), start_y(other_box), end_x(other_box), end_y(other_box)]
+
+    def area(box):
+        return (end_y(box) - start_y(box)) * (end_x(box) - start_x(box))
+
+    dx = min(this_coords[2], other_coords[2]) - max(this_coords[0], other_coords[0])
+    dy = min(this_coords[3], other_coords[3]) - max(this_coords[1], other_coords[1])
+    if (dx >= 0) and (dy >= 0):
+        intersection_area = dx * dy
+        return float(intersection_area) / min(area(this_box), area(other_box)) > merge_p['overlap_fract']
+    else:
+        return False
+
+
 def start_near(this_box, other_box, merge_p):
     start_dist = abs(start_x(this_box) - start_x(other_box))
     return start_dist < min(average_character_length(this_box), average_character_length(other_box)) * merge_p['start_x']
 
 
+def short_line(box, merge_p):
+    return width(box) < average_character_length(box) * merge_p['short_length']
+
+
+def similar_char_size(this_box, other_box, merge_p):
+    char_sizes = [average_character_length(this_box), average_character_length(other_box)]
+    sorted_char_sizes = sorted(char_sizes)
+    return (sorted_char_sizes[1] - sorted_char_sizes[0]) / sorted_char_sizes[0] < merge_p['char_size_ratio']
+
+
 def merge_same_line(this_box, other_box, merge_p):
-    return horizontal_near(this_box, other_box, merge_p) and vertical_overlap(this_box, other_box, merge_p)
+    location_comp = horizontal_near(this_box, other_box, merge_p) and vertical_overlap(this_box, other_box, merge_p)
+    size_comp = similar_char_size(this_box, other_box, merge_p)
+    return location_comp and size_comp
 
 
 def merge_adjacent_lines(this_box, other_box, merge_p):
     comp_all = vertical_near(this_box, other_box, merge_p) and horizontal_overlap(this_box, other_box, merge_p)
     comp_start = vertical_near(this_box, other_box, merge_p) and start_near(this_box, other_box, merge_p)
-    return comp_all or comp_start
+    # comp_line_length = short_line(this_box, merge_p) or short_line(this_box, merge_p)
+    size_comp = similar_char_size(this_box, other_box, merge_p)
+    return (comp_all or comp_start) and size_comp
 
 
 def make_annotation_json(box):
@@ -166,8 +196,6 @@ def make_annotation_json(box):
     annotation['figure'] = {}
     annotation['relationship'] = {}
     return annotation['text'].values()[0]
-# if y_distance < (height(d) * y_threshold) and start_x(current_d) < end_x(d) *x_threshold and end_x(current_d)*x_threshold > start_x(d):
-                    # if y_distance < (height(d) * y_threshold):
 
 
 def merge_boxes(detections, merge_params):
@@ -236,9 +264,41 @@ def merge_boxes(detections, merge_params):
 
         return new_detections
 
+    def merge_final_pass(detected_boxes, merge_p):
+        rectangle_groups = []
+        for current_d in detected_boxes:
+            found_group = False
+            for g in rectangle_groups:
+                if not found_group:
+                    for d in g:
+                        if merge_contained(current_d, d, merge_p):
+                            g.append(current_d)
+                            found_group = True
+                            break
+            if not found_group:
+                rectangle_groups.append([current_d])
+
+        new_detections = []
+        for g in rectangle_groups:
+            if len(g) == 1:
+                new_detections.append(g[0])
+            else:
+                min_x = min(map(lambda x: start_x(x), g))
+                max_x = max(map(lambda x: end_x(x), g))
+                min_y = min(map(lambda x: start_y(x), g))
+                max_y = max(map(lambda x: end_y(x), g))
+                words = ' '.join(map(lambda x: get_value(x), g))
+                score = ' '.join(map(lambda x: str(get_score(x)), g))
+                detection = Detection(min_x, min_y, max_x, max_y, words, score)
+                new_detection = make_annotation_json(detection.to_JSON())
+                new_detections.append(new_detection)
+
+        return new_detections
+
     horizontal_pass_dets = merge_horizontal_pass(sorted_detections, merge_params)
     vertical_pass_combined = merge_vertical_pass(horizontal_pass_dets, merge_params)
-    return vertical_pass_combined
+    final_pass_combined = merge_final_pass(vertical_pass_combined, merge_params)
+    return final_pass_combined
 
 
 def merge_single_page(file_path, merge_params):
