@@ -23,7 +23,6 @@ page_schema = {
                             "type": "string"
                         },
                         "score": {
-                          "type": "number"
                         },
                         "rectangle": {
                             "type": "array",

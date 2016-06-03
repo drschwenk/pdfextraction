@@ -8,13 +8,14 @@ from ocr_pipeline import assemble_url
 
 class Detection:
 
-    def __init__(self, start_x, start_y, end_x, end_y, value, score):
+    def __init__(self, start_x, start_y, end_x, end_y, value, score, v_dim):
         self.start_x = start_x
         self.start_y = start_y
         self.end_x = end_x
         self.end_y = end_y
         self.value = value
         self.score = score
+        self.v_dim = v_dim
 
     def height(self):
         return self.end_y - self.start_y
@@ -41,6 +42,7 @@ class Detection:
         return {
             'rectangle':[{'x':self.start_x, 'y':self.start_y}, {'x':self.end_x, 'y':self.end_y}],
             'value': self.value,
+            'v_dim': self.v_dim,
             'score': self.score}
 
     def __repr__(self):
@@ -81,6 +83,13 @@ def get_value(box):
 
 def get_score(box):
     return box['score']
+
+
+def get_v_dim(box):
+    try:
+        return box['v_dim']
+    except KeyError:
+        return 0
 
 
 def average_character_length(box):
@@ -160,7 +169,7 @@ def merge_adjacent_lines(this_box, other_box, merge_p):
     return (comp_all or comp_start) and size_comp
 
 
-def make_annotation_json(box):
+def make_annotation_json(box, book_name, page_n):
     def point_to_tuple(box):
         return tuple(OrderedDict(sorted(box.items())).values())
 
@@ -178,13 +187,14 @@ def make_annotation_json(box):
             "contents": box['value'],
             "score": box['score'],
             "rectangle": bounding_rectangle,
+            "v_dim": box['v_dim'],
             "source": {
                 "type": "object",
                 "$schema": "http://json-schema.org/draft-04/schema",
                 "additionalProperties": False,
                 "properties": [
-                    {"book_source": 't'},
-                    {"page_n": 1}
+                    {"book_source": book_name},
+                    {"page_n": page_n}
                 ]
             }
         }
@@ -198,9 +208,21 @@ def make_annotation_json(box):
     return annotation['text'].values()[0]
 
 
-def merge_boxes(detections, merge_params):
-    int_keys = {int(k[1:]): v for k,v in detections.items()}
+def merge_boxes(detections, merge_params, book_name, page_n):
+    int_keys = {int(k[1:]): v for k, v in detections.items()}
     sorted_detections = OrderedDict(sorted(int_keys.items()))
+
+    def merge_box_values(g, book_name, page_n):
+        min_x = min(map(lambda x: start_x(x), g))
+        max_x = max(map(lambda x: end_x(x), g))
+        min_y = min(map(lambda x: start_y(x), g))
+        max_y = max(map(lambda x: end_y(x), g))
+        words = ' '.join(map(lambda x: get_value(x), g))
+        score = sum([get_score(x) for x in g])/len(g)
+        v_dim = get_v_dim(g[0])
+        detection = Detection(min_x, min_y, max_x, max_y, words, score, v_dim)
+        new_detection = make_annotation_json(detection.to_JSON(), book_name, page_n)
+        return new_detection
 
     def merge_horizontal_pass(detected_boxes, merge_p):
         rectangle_groups = []
@@ -221,15 +243,7 @@ def merge_boxes(detections, merge_params):
             if len(g) == 1:
                 new_detections.append(g[0])
             else:
-                min_x = min(map(lambda x: start_x(x), g))
-                max_x = max(map(lambda x: end_x(x), g))
-                min_y = min(map(lambda x: start_y(x), g))
-                max_y = max(map(lambda x: end_y(x), g))
-                words = ' '.join(map(lambda x: get_value(x), g))
-                score = ' '.join(map(lambda x: str(get_score(x)), g))
-                detection = Detection(min_x, min_y, max_x, max_y, words, score)
-                new_detection = make_annotation_json(detection.to_JSON())
-                new_detections.append(new_detection)
+                new_detections.append(merge_box_values(g, book_name, page_n))
 
         return new_detections
 
@@ -252,15 +266,7 @@ def merge_boxes(detections, merge_params):
             if len(g) == 1:
                 new_detections.append(g[0])
             else:
-                min_x = min(map(lambda x: start_x(x), g))
-                max_x = max(map(lambda x: end_x(x), g))
-                min_y = min(map(lambda x: start_y(x), g))
-                max_y = max(map(lambda x: end_y(x), g))
-                words = ' '.join(map(lambda x: get_value(x), g))
-                score = ' '.join(map(lambda x: str(get_score(x)), g))
-                detection = Detection(min_x, min_y, max_x, max_y, words, score)
-                new_detection = make_annotation_json(detection.to_JSON())
-                new_detections.append(new_detection)
+                new_detections.append(merge_box_values(g, book_name, page_n))
 
         return new_detections
 
@@ -283,16 +289,7 @@ def merge_boxes(detections, merge_params):
             if len(g) == 1:
                 new_detections.append(g[0])
             else:
-                min_x = min(map(lambda x: start_x(x), g))
-                max_x = max(map(lambda x: end_x(x), g))
-                min_y = min(map(lambda x: start_y(x), g))
-                max_y = max(map(lambda x: end_y(x), g))
-                words = ' '.join(map(lambda x: get_value(x), g))
-                score = ' '.join(map(lambda x: str(get_score(x)), g))
-                detection = Detection(min_x, min_y, max_x, max_y, words, score)
-                new_detection = make_annotation_json(detection.to_JSON())
-                new_detections.append(new_detection)
-
+                new_detections.append(merge_box_values(g, book_name, page_n))
         return new_detections
 
     horizontal_pass_dets = merge_horizontal_pass(sorted_detections, merge_params)
@@ -301,20 +298,18 @@ def merge_boxes(detections, merge_params):
     return final_pass_combined
 
 
-def merge_single_page(file_path, merge_params):
+def merge_single_page(file_path, merge_params, book_name, page_n):
     with open(file_path, 'r') as f:
         annotations = json.load(f)
-    merged_annotation = merge_boxes(annotations['text'], merge_params)
+    merged_annotation = merge_boxes(annotations['text'], merge_params, book_name, page_n)
     return merged_annotation
 
 
 def merge_single_book(book_name, (start_n, stop_n), destination_path, merge_params):
-    base_path = './ai2-vision-turk-data/textbook-annotation-test/unmerged-annotations/'
-
-    # for page_n in range(20+8, 21+8):
+    base_path = './ai2-vision-turk-data/textbook-annotation-test/annotations_ws/'
     for page_n in range(start_n, stop_n):
         file_path = base_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
-        merged_text_anno = merge_single_page(file_path, merge_params)
+        merged_text_anno = merge_single_page(file_path, merge_params, book_name, page_n)
         merged_text_named = {'T'+str(i + 1): merged_text_anno[i] for i in range(len(merged_text_anno))}
 
         for name, detection in merged_text_named.items():

@@ -75,6 +75,12 @@ def scale_image(pdf_page_image, scale_factor):
     return page_image.convert('L')
 
 
+def record_image_size(pdf_page_image):
+    page_image = Image.open(io.BytesIO(pdf_page_image))
+    img_dim = page_image.size
+    return img_dim
+
+
 def write_image_file(layout, page_n, book, dir_name, scale_factor=0):
     figure_detections = [detection for detection in layout._objs if type(detection) == pdfminer.layout.LTFigure][0]
     page_image = figure_detections._objs[0]
