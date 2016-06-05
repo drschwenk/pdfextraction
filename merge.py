@@ -124,6 +124,12 @@ def vertical_near(this_box, other_box, merge_p):
     return y_distance < comp_char_len * merge_p['near_y']
 
 
+def vertical_near_2(this_box, other_box, merge_p):
+    y_distance = min(abs(start_y(other_box) - end_y(this_box)), abs(start_y(this_box) - end_y(other_box)))
+    comp_char_len = min(average_character_length(other_box), average_character_length(this_box))
+    return y_distance < comp_char_len * merge_p['starting_near_near_y']
+
+
 def merge_contained(this_box, other_box, merge_p):
     this_coords = [start_x(this_box), start_y(this_box), end_x(this_box), end_y(this_box)]
     other_coords = [start_x(other_box), start_y(other_box), end_x(other_box), end_y(other_box)]
@@ -163,7 +169,7 @@ def merge_same_line(this_box, other_box, merge_p):
 
 def merge_adjacent_lines(this_box, other_box, merge_p):
     comp_all = vertical_near(this_box, other_box, merge_p) and horizontal_overlap(this_box, other_box, merge_p)
-    comp_start = vertical_near(this_box, other_box, merge_p) and start_near(this_box, other_box, merge_p)
+    comp_start = vertical_near_2(this_box, other_box, merge_p) and start_near(this_box, other_box, merge_p)
     # comp_line_length = short_line(this_box, merge_p) or short_line(this_box, merge_p)
     size_comp = similar_char_size(this_box, other_box, merge_p)
     return (comp_all or comp_start) and size_comp
@@ -272,6 +278,7 @@ def merge_boxes(detections, merge_params, book_name, page_n):
 
     def merge_final_pass(detected_boxes, merge_p):
         rectangle_groups = []
+        # for name, current_d in detected_boxes.items():
         for current_d in detected_boxes:
             found_group = False
             for g in rectangle_groups:
@@ -293,9 +300,9 @@ def merge_boxes(detections, merge_params, book_name, page_n):
         return new_detections
 
     horizontal_pass_dets = merge_horizontal_pass(sorted_detections, merge_params)
-    vertical_pass_combined = merge_vertical_pass(horizontal_pass_dets, merge_params)
-    final_pass_combined = merge_final_pass(vertical_pass_combined, merge_params)
-    return final_pass_combined
+    overlap_pass_dets = merge_final_pass(horizontal_pass_dets, merge_params)
+    vertical_pass_combined = merge_vertical_pass(overlap_pass_dets, merge_params)
+    return vertical_pass_combined
 
 
 def merge_single_page(file_path, merge_params, book_name, page_n):
