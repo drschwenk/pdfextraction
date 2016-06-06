@@ -1,7 +1,8 @@
 import json
 from collections import OrderedDict
 from collections import defaultdict
-import requests
+import operator
+
 
 from ocr_pipeline import assemble_url
 
@@ -99,15 +100,23 @@ def average_character_length(box):
 def horizontal_overlap(this_box, other_box, merge_p):
     boxes_x_coords = [[start_x(this_box), end_x(this_box)], [start_x(other_box), end_x(other_box)]]
     ordered_boxes = sorted(boxes_x_coords)
-    overlap = ordered_boxes[0][1] - ordered_boxes[1][0]
+    overlap = max(0, min(ordered_boxes[0][1], ordered_boxes[1][1]) - max(ordered_boxes[0][0], ordered_boxes[1][0]))
     comp_box_width = max(width(this_box), width(other_box))
-    return overlap / float(comp_box_width) > merge_p['overlap_x']
+    return (overlap / float(comp_box_width)) > merge_p['overlap_x']
+
+
+def horizontal_overlap2(this_box, other_box, merge_p):
+    boxes_x_coords = [[start_x(this_box), end_x(this_box)], [start_x(other_box), end_x(other_box)]]
+    ordered_boxes = sorted(boxes_x_coords)
+    overlap = max(0, min(ordered_boxes[0][1], ordered_boxes[1][1]) - max(ordered_boxes[0][0], ordered_boxes[1][0]))
+    comp_box_width = min(width(this_box), width(other_box))
+    return overlap / float(comp_box_width) + 0.001
 
 
 def vertical_overlap(this_box, other_box, merge_p):
     boxes_y_coords = [[start_y(this_box), end_y(this_box)], [start_y(other_box), end_y(other_box)]]
     ordered_boxes = sorted(boxes_y_coords)
-    overlap = ordered_boxes[0][1] - ordered_boxes[1][0]
+    overlap = max(0, min(ordered_boxes[0][1], ordered_boxes[1][1]) - max(ordered_boxes[0][0], ordered_boxes[1][0]))
     comp_box_width = max(height(this_box), height(other_box))
     return overlap / float(comp_box_width) > merge_p['overlap_y']
 
@@ -121,13 +130,28 @@ def horizontal_near(this_detection, other_detection, merge_p):
 def vertical_near(this_box, other_box, merge_p):
     y_distance = min(abs(start_y(other_box) - end_y(this_box)), abs(start_y(this_box) - end_y(other_box)))
     comp_char_len = min(average_character_length(other_box), average_character_length(this_box))
-    return y_distance < comp_char_len * merge_p['near_y']
+    return y_distance < comp_char_len * horizontal_overlap2(this_box, other_box, merge_p) * merge_p['near_y']
 
 
 def vertical_near_2(this_box, other_box, merge_p):
     y_distance = min(abs(start_y(other_box) - end_y(this_box)), abs(start_y(this_box) - end_y(other_box)))
     comp_char_len = min(average_character_length(other_box), average_character_length(this_box))
     return y_distance < comp_char_len * merge_p['starting_near_near_y']
+
+
+def start_near(this_box, other_box, merge_p):
+    start_dist = abs(start_x(this_box) - start_x(other_box))
+    return start_dist < min(average_character_length(this_box), average_character_length(other_box)) * merge_p['start_x']
+
+
+def short_line(box, merge_p):
+    return width(box) < average_character_length(box) * merge_p['short_length']
+
+
+def similar_char_size(this_box, other_box, merge_p):
+    char_sizes = [average_character_length(this_box), average_character_length(other_box)]
+    sorted_char_sizes = sorted(char_sizes)
+    return (sorted_char_sizes[1] - sorted_char_sizes[0]) / sorted_char_sizes[0] < merge_p['char_size_ratio']
 
 
 def merge_contained(this_box, other_box, merge_p):
@@ -146,21 +170,6 @@ def merge_contained(this_box, other_box, merge_p):
         return False
 
 
-def start_near(this_box, other_box, merge_p):
-    start_dist = abs(start_x(this_box) - start_x(other_box))
-    return start_dist < min(average_character_length(this_box), average_character_length(other_box)) * merge_p['start_x']
-
-
-def short_line(box, merge_p):
-    return width(box) < average_character_length(box) * merge_p['short_length']
-
-
-def similar_char_size(this_box, other_box, merge_p):
-    char_sizes = [average_character_length(this_box), average_character_length(other_box)]
-    sorted_char_sizes = sorted(char_sizes)
-    return (sorted_char_sizes[1] - sorted_char_sizes[0]) / sorted_char_sizes[0] < merge_p['char_size_ratio']
-
-
 def merge_same_line(this_box, other_box, merge_p):
     location_comp = horizontal_near(this_box, other_box, merge_p) and vertical_overlap(this_box, other_box, merge_p)
     size_comp = similar_char_size(this_box, other_box, merge_p)
@@ -168,11 +177,13 @@ def merge_same_line(this_box, other_box, merge_p):
 
 
 def merge_adjacent_lines(this_box, other_box, merge_p):
-    comp_all = vertical_near(this_box, other_box, merge_p) and horizontal_overlap(this_box, other_box, merge_p)
-    comp_start = vertical_near_2(this_box, other_box, merge_p) and start_near(this_box, other_box, merge_p)
-    # comp_line_length = short_line(this_box, merge_p) or short_line(this_box, merge_p)
+    comp_all = vertical_near(this_box, other_box, merge_p)
+    comp_start = vertical_near_2(this_box, other_box, merge_p) and start_near(this_box, other_box, merge_p) and horizontal_overlap(this_box, other_box, merge_p)
+    # comp_all = False
+    # comp_start = False
+    comp_line_length = short_line(this_box, merge_p) or short_line(this_box, merge_p)
     size_comp = similar_char_size(this_box, other_box, merge_p)
-    return (comp_all or comp_start) and size_comp
+    return (comp_all or (comp_start and not comp_line_length)) and size_comp
 
 
 def make_annotation_json(box, book_name, page_n):
@@ -215,7 +226,7 @@ def make_annotation_json(box, book_name, page_n):
 
 
 def merge_boxes(detections, merge_params, book_name, page_n):
-    int_keys = {int(k[1:]): v for k, v in detections.items()}
+    int_keys = {int(k[1:]): v for k, v in sorted(detections.items(), key=lambda x: x[1]['rectangle'][0][1])}
     sorted_detections = OrderedDict(sorted(int_keys.items()))
 
     def merge_box_values(g, book_name, page_n):
@@ -251,7 +262,7 @@ def merge_boxes(detections, merge_params, book_name, page_n):
             else:
                 new_detections.append(merge_box_values(g, book_name, page_n))
 
-        return new_detections
+        return sorted(new_detections, key=lambda x: x['rectangle'][0][1])
 
     def merge_vertical_pass(detected_boxes, merge_p):
         rectangle_groups = []
@@ -297,7 +308,7 @@ def merge_boxes(detections, merge_params, book_name, page_n):
                 new_detections.append(g[0])
             else:
                 new_detections.append(merge_box_values(g, book_name, page_n))
-        return new_detections
+        return sorted(new_detections, key=lambda x: x['rectangle'][0][1])
 
     horizontal_pass_dets = merge_horizontal_pass(sorted_detections, merge_params)
     overlap_pass_dets = merge_final_pass(horizontal_pass_dets, merge_params)
