@@ -3,10 +3,15 @@ import pickle
 import boto
 import json
 import jsonschema
+from collections import defaultdict
 from copy import deepcopy
 import boto.mturk.connection as tc
 import boto.mturk.question as tq
 from boto.mturk.qualification import PercentAssignmentsApprovedRequirement, Qualifications, Requirement
+from flask import request
+import requests
+
+from annotation_schema import page_schema
 
 
 def load_book_info():
@@ -61,7 +66,7 @@ def create_single_hit(mturk_connection, url, static_hit_params):
     hit_params = build_hit_params(url, static_hit_params)
     
     create_hit_result = mturk_connection.create_hit(
-        title='title',
+        title=hit_params['title'],
         description=hit_params['description'],
         keywords=hit_params['keywords'],
         question=hit_params['questionform'],
@@ -84,13 +89,50 @@ def delete_all_hits(mturk_connection):
         mturk_connection.disable_hit(hit.HITId)
 
 
+def get_completed_hits(mturk_connection):
+    reviewable_hits = []
+
+    page_n = 1
+    while True and page_n < 8:
+        print page_n
+        hit_range = mturk_connection.get_reviewable_hits(page_size=100, page_number=page_n)
+        print hit_range
+        reviewable_hits.extend(hit_range)
+        page_n += 1
+    return reviewable_hits
+
+
+def get_assignments(mturk_connection, reviewable_hits):
+    assignments = defaultdict(list)
+    for hit in reviewable_hits:
+        assignment = mturk_connection.get_assignments(hit.HITId)
+        print  assignment
+        assignments[assignment.AssignmentId].append(assignment)
+    return assignments
+
+
+def process_raw_hits(assignments):
+    mechanical_turk_results = defaultdict(list)
+    for hit_id, assignment in assignments.items():
+        for answers in assignment[0][0].answers:
+            mechanical_turk_results[answers[0].fields[0]].append({hit_id: answers[1].fields})
+    return mechanical_turk_results
+
+
+def accept_hits(mturk_connection, assignments_to_approve):
+    for hit_id, assignment in assignments_to_approve.items():
+        print hit_id, assignment[0][0].AssignmentId
+        mturk_connection.approve_assignment(assignment[0][0].AssignmentId)
+        mturk_connection.disable_hit(hit_id)
+
+
 def form_annotation_url(page_name):
-    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/merged-annotations/'
+    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/test-annotations/'
     return base_path + page_name.replace('jpeg', 'json')
 
 
 def load_local_annotation(page_name):
-    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/merged-annotations/'
+    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/test-annotations/'
     file_path = base_path + page_name.replace('jpeg', 'json')
     with open(file_path, 'r') as f:
         local_annotations = json.load(f)
@@ -107,11 +149,24 @@ def process_annotation_results(anno_page_name, turk_consensus_result, unannotate
 #     validator.validate(json.loads(json.dumps(unannotated_page)))
 
     file_path = annotations_folder + anno_page_name.replace('jpeg', 'json').replace("\\", "")
-    with open(file_path, 'wb') as rf:
+    with open(file_path, 'wb') as f:
         json.dump(unannotated_page, f)
     return
 
 
-book_groups,ranges = load_book_info()
-daily_sci_urls = make_book_group_urls(book_groups, 'daily_sci', ranges)
-spectrum_sci_urls = make_book_group_urls(book_groups, 'spectrum_sci', ranges)
+def write_consensus_results(consensus_results):
+    for page_name, results in consensus_results.iteritems():
+        local_result_path = './ai2-vision-turk-data/textbook-annotation-test/test-annotations/'
+        unaltered_annotations = load_local_annotation(page_name)
+        process_annotation_results(page_name, results, unaltered_annotations, local_result_path, page_schema)
+
+
+def review_results(consensus_results):
+    review_api_endpoint = 'http://localhost:8080/api/review'
+    payload = {'pages_to_review': str(consensus_results.keys())}
+    headers = {'content-type': 'application/json'}
+    requests.post(review_api_endpoint, data=json.dumps(payload), headers=headers)
+
+# book_groups,ranges = load_book_info()
+# daily_sci_urls = make_book_group_urls(book_groups, 'daily_sci', ranges)
+# spectrum_sci_urls = make_book_group_urls(book_groups, 'spectrum_sci', ranges)
