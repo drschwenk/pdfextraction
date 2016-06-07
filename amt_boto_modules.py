@@ -1,6 +1,7 @@
 # coding: utf-8
 import pickle
 import boto
+import pandas as pd
 import json
 import jsonschema
 from collections import defaultdict
@@ -8,7 +9,6 @@ from copy import deepcopy
 import boto.mturk.connection as tc
 import boto.mturk.question as tq
 from boto.mturk.qualification import PercentAssignmentsApprovedRequirement, Qualifications, Requirement
-from flask import request
 import requests
 
 from annotation_schema import page_schema
@@ -108,7 +108,6 @@ def get_assignments(mturk_connection, reviewable_hits):
     assignments = defaultdict(list)
     for hit in reviewable_hits:
         assignment = mturk_connection.get_assignments(hit.HITId)
-        print assignment
         assignments[hit.HITId].extend(assignment)
     return assignments
 
@@ -119,16 +118,29 @@ def process_raw_hits(assignments_by_hit):
         for assignment in hit_assignments:
             for answers in assignment.answers:
                 mechanical_turk_results[hit_id].append(
-                    {assignment.AssignmentId: {answers[0].fields[0]: answers[1].fields}})
+                    {assignment.AssignmentId: {answers[0].fields[0]: answers[1].fields[0]}})
     return mechanical_turk_results
 
 
 def accept_hits(mturk_connection, assignments_to_approve):
     for hit_id, hit_assignments in assignments_to_approve.items():
         for assignment in hit_assignments:
-            print hit_id, assignment.AssignmentId
             mturk_connection.approve_assignment(assignment.AssignmentId)
         mturk_connection.disable_hit(hit_id)
+
+
+def make_results_df(raw_hit_results):
+    col_names = ['page', 'category', 'hit_id', 'assignment_id', 'box_id']
+    results_df = pd.DataFrame(columns=col_names)
+    idx = 0
+    for hit_id, assignments in raw_hit_results.items():
+        for assignment in assignments:
+            for a_id, annotation in assignment.items():
+                for page, labeled_text in annotation.items():
+                    for box in json.loads(labeled_text):
+                        results_df.loc[idx] = [page, box['category'], hit_id, a_id, box['id']]
+                        idx += 1
+    return results_df
 
 
 def form_annotation_url(page_name):
@@ -146,7 +158,6 @@ def load_local_annotation(page_name):
 
 def process_annotation_results(anno_page_name, turk_consensus_result, unannotated_page, annotations_folder, page_schema):
 
-    turk_results_json = json.loads(turk_consensus_result[0])
     for result in turk_results_json:
         unannotated_page['text'][result['id']]['category'] = result['category']
 
