@@ -93,10 +93,12 @@ def get_completed_hits(mturk_connection):
     reviewable_hits = []
 
     page_n = 1
-    while True and page_n < 8:
-        print page_n
+    hits_left = True
+    while hits_left:
         hit_range = mturk_connection.get_reviewable_hits(page_size=100, page_number=page_n)
-        print hit_range
+        if not hit_range:
+            hits_left = False
+            break
         reviewable_hits.extend(hit_range)
         page_n += 1
     return reviewable_hits
@@ -106,23 +108,26 @@ def get_assignments(mturk_connection, reviewable_hits):
     assignments = defaultdict(list)
     for hit in reviewable_hits:
         assignment = mturk_connection.get_assignments(hit.HITId)
-        print  assignment
-        assignments[assignment.AssignmentId].append(assignment)
+        print assignment
+        assignments[hit.HITId].extend(assignment)
     return assignments
 
 
-def process_raw_hits(assignments):
+def process_raw_hits(assignments_by_hit):
     mechanical_turk_results = defaultdict(list)
-    for hit_id, assignment in assignments.items():
-        for answers in assignment[0][0].answers:
-            mechanical_turk_results[answers[0].fields[0]].append({hit_id: answers[1].fields})
+    for hit_id, hit_assignments in assignments_by_hit.items():
+        for assignment in hit_assignments:
+            for answers in assignment.answers:
+                mechanical_turk_results[hit_id].append(
+                    {assignment.AssignmentId: {answers[0].fields[0]: answers[1].fields}})
     return mechanical_turk_results
 
 
 def accept_hits(mturk_connection, assignments_to_approve):
-    for hit_id, assignment in assignments_to_approve.items():
-        print hit_id, assignment[0][0].AssignmentId
-        mturk_connection.approve_assignment(assignment[0][0].AssignmentId)
+    for hit_id, hit_assignments in assignments_to_approve.items():
+        for assignment in hit_assignments:
+            print hit_id, assignment.AssignmentId
+            mturk_connection.approve_assignment(assignment.AssignmentId)
         mturk_connection.disable_hit(hit_id)
 
 
