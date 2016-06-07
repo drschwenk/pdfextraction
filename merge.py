@@ -109,8 +109,8 @@ def horizontal_overlap2(this_box, other_box, merge_p):
     boxes_x_coords = [[start_x(this_box), end_x(this_box)], [start_x(other_box), end_x(other_box)]]
     ordered_boxes = sorted(boxes_x_coords)
     overlap = max(0, min(ordered_boxes[0][1], ordered_boxes[1][1]) - max(ordered_boxes[0][0], ordered_boxes[1][0]))
-    comp_box_width = min(width(this_box), width(other_box))
-    return overlap / float(comp_box_width) + 0.001
+    comp_box_width = max(width(this_box), width(other_box))
+    return (overlap / float(comp_box_width)) > merge_p['near_overlap_x']
 
 
 def vertical_overlap(this_box, other_box, merge_p):
@@ -130,7 +130,7 @@ def horizontal_near(this_detection, other_detection, merge_p):
 def vertical_near(this_box, other_box, merge_p):
     y_distance = min(abs(start_y(other_box) - end_y(this_box)), abs(start_y(this_box) - end_y(other_box)))
     comp_char_len = min(average_character_length(other_box), average_character_length(this_box))
-    return y_distance < comp_char_len * horizontal_overlap2(this_box, other_box, merge_p) * merge_p['near_y']
+    return y_distance < comp_char_len * merge_p['near_y']
 
 
 def vertical_near_2(this_box, other_box, merge_p):
@@ -177,8 +177,8 @@ def merge_same_line(this_box, other_box, merge_p):
 
 
 def merge_adjacent_lines(this_box, other_box, merge_p):
-    comp_all = vertical_near(this_box, other_box, merge_p)
-    comp_start = vertical_near_2(this_box, other_box, merge_p) and start_near(this_box, other_box, merge_p) and horizontal_overlap(this_box, other_box, merge_p)
+    comp_all = vertical_near(this_box, other_box, merge_p) and horizontal_overlap(this_box, other_box, merge_p)
+    comp_start = vertical_near_2(this_box, other_box, merge_p) and start_near(this_box, other_box, merge_p) and horizontal_overlap2(this_box, other_box, merge_p)
     # comp_all = False
     # comp_start = False
     comp_line_length = short_line(this_box, merge_p) or short_line(this_box, merge_p)
