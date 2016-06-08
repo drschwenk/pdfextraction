@@ -144,45 +144,49 @@ def make_results_df(raw_hit_results):
 
 
 def form_annotation_url(page_name):
-    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/test-annotations/'
+    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/merged-annotations/'
     return base_path + page_name.replace('jpeg', 'json')
 
 
 def load_local_annotation(page_name):
-    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/test-annotations/'
+    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/merged-annotations/'
     file_path = base_path + page_name.replace('jpeg', 'json')
     with open(file_path, 'r') as f:
         local_annotations = json.load(f)
     return local_annotations
 
 
-def process_annotation_results(anno_page_name, turk_consensus_result, unannotated_page, annotations_folder, page_schema):
+def process_annotation_results(anno_page_name, boxes, unannotated_page, annotations_folder, page_schema):
 
-    for result in turk_results_json:
-        unannotated_page['text'][result['id']]['category'] = result['category']
+    def update_box(result_row):
+        box_id = result_row['box_id']
+        category = result_row['category']
+        unannotated_page['text'][box_id]['category'] = category
 
-    validator = jsonschema.Draft4Validator(page_schema)
+    boxes.apply(update_box, axis=1)
+
+    # validator = jsonschema.Draft4Validator(page_schema)
 #     validator.validate(json.loads(json.dumps(unannotated_page)))
-
     file_path = annotations_folder + anno_page_name.replace('jpeg', 'json').replace("\\", "")
     with open(file_path, 'wb') as f:
         json.dump(unannotated_page, f)
     return
 
 
-def write_consensus_results(consensus_results):
-    for page_name, results in consensus_results.iteritems():
-        local_result_path = './ai2-vision-turk-data/textbook-annotation-test/test-annotations/'
-        unaltered_annotations = load_local_annotation(page_name)
-        process_annotation_results(page_name, results, unaltered_annotations, local_result_path, page_schema)
+def write_consensus_results(page_name, boxes):
+    unaltered_annotations = load_local_annotation(page_name)
+    local_result_path = './ai2-vision-turk-data/textbook-annotation-test/test-annotations/'
+    process_annotation_results(page_name, boxes, unaltered_annotations, local_result_path, page_schema)
 
 
-def review_results(consensus_results):
+def write_results_df(aggregate_results_df):
+    for page, boxes in aggregate_results_df.groupby('page'):
+        write_consensus_results(page, boxes)
+
+
+def review_results(pages_to_review):
     review_api_endpoint = 'http://localhost:8080/api/review'
-    payload = {'pages_to_review': str(consensus_results.keys())}
+    payload = {'pages_to_review': str(pages_to_review)}
     headers = {'content-type': 'application/json'}
     requests.post(review_api_endpoint, data=json.dumps(payload), headers=headers)
 
-# book_groups,ranges = load_book_info()
-# daily_sci_urls = make_book_group_urls(book_groups, 'daily_sci', ranges)
-# spectrum_sci_urls = make_book_group_urls(book_groups, 'spectrum_sci', ranges)
