@@ -47,7 +47,7 @@ def make_book_group_urls(book_groups, book_group, ranges):
 def build_hit_params(url, static_params):
     def build_qualifications():
         qualifications = Qualifications()
-        req1 = PercentAssignmentsApprovedRequirement(comparator = "GreaterThan", integer_value = "95")
+        req1 = PercentAssignmentsApprovedRequirement(comparator="GreaterThan", integer_value="95")
         qualifications.add(req1)
         return qualifications
     
@@ -117,8 +117,13 @@ def process_raw_hits(assignments_by_hit):
     for hit_id, hit_assignments in assignments_by_hit.items():
         for assignment in hit_assignments:
             for answers in assignment.answers:
-                mechanical_turk_results[hit_id].append(
-                    {assignment.AssignmentId: {answers[0].fields[0]: answers[1].fields[0]}})
+                box_result = answers[1].fields[0]
+                box_json = json.loads(box_result)
+                for box in box_json:
+                    box['worker_id'] = assignment.WorkerId
+                mechanical_turk_results[hit_id].append({
+                    assignment.AssignmentId: {answers[0].fields[0]: box_json}}
+                )
     return mechanical_turk_results
 
 
@@ -130,15 +135,16 @@ def accept_hits(mturk_connection, assignments_to_approve):
 
 
 def make_results_df(raw_hit_results):
-    col_names = ['page', 'category', 'hit_id', 'assignment_id', 'box_id']
+    col_names = ['page', 'category', 'hit_id', 'assignment_id', 'box_id', 'worker_id']
     results_df = pd.DataFrame(columns=col_names)
     idx = 0
     for hit_id, assignments in raw_hit_results.items():
         for assignment in assignments:
             for a_id, annotation in assignment.items():
                 for page, labeled_text in annotation.items():
-                    for box in json.loads(labeled_text):
-                        results_df.loc[idx] = [page, box['category'], hit_id, a_id, box['id']]
+                    for box in labeled_text:
+                        results_df.loc[idx] = \
+                            [page, box['category'], hit_id, a_id, box['id'], box['worker_id']]
                         idx += 1
     return results_df
 
@@ -189,4 +195,9 @@ def review_results(pages_to_review):
     payload = {'pages_to_review': str(pages_to_review)}
     headers = {'content-type': 'application/json'}
     requests.post(review_api_endpoint, data=json.dumps(payload), headers=headers)
+
+
+def pickle_this(results_df, file_name):
+    with open(file_name, 'w') as f:
+        pickle.dump(results_df, f)
 
