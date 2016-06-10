@@ -26,7 +26,8 @@ def load_book_info():
 
 def form_hit_url(book_name, page_n):
     book_name_no_ext = book_name.replace('.pdf', '_')
-    base_url = 'https://s3-us-west-2.amazonaws.com/ai2-vision-turk-data/textbook-annotation-test/textbook_hit_instructions/instructions.html'
+    # base_url = 'https://s3-us-west-2.amazonaws.com/ai2-vision-turk-data/textbook-annotation-test/textbook_hit_instructions/instructions.html'
+    base_url = 'https://s3-us-west-2.amazonaws.com/ai2-vision-turk-data/textbook-annotation-test/build/index.html'
     full_url = base_url + '?url={}{}.jpeg&id={}'.format(book_name_no_ext, page_n, page_n)
     return full_url
 
@@ -73,7 +74,8 @@ def create_single_hit(mturk_connection, url, static_hit_params):
         reward=hit_params['reward'],
         max_assignments=hit_params['max_assignments'],
         duration=hit_params['duration'],
-        qualifications=hit_params['qualifications']
+        qualifications=hit_params['qualifications'],
+        lifetime=hit_params['lifetime']
     )
     return create_hit_result
 
@@ -137,16 +139,35 @@ def accept_hits(mturk_connection, assignments_to_approve):
 def make_results_df(raw_hit_results):
     col_names = ['page', 'category', 'hit_id', 'assignment_id', 'box_id', 'worker_id']
     results_df = pd.DataFrame(columns=col_names)
-    idx = 0
     for hit_id, assignments in raw_hit_results.items():
         for assignment in assignments:
             for a_id, annotation in assignment.items():
                 for page, labeled_text in annotation.items():
                     for box in labeled_text:
-                        results_df.loc[idx] = \
+                        results_df.loc[len(results_df)] = \
                             [page, box['category'], hit_id, a_id, box['id'], box['worker_id']]
-                        idx += 1
     return results_df
+
+
+def make_consensus_df(results_df, no_consensus_flag):
+    grouped_by_page = results_df.groupby(['page', 'box_id'])
+    aggregated_df = grouped_by_page.agg(pd.DataFrame.mode)
+    aggregated_df.drop(['assignment_id', 'page', 'box_id', 'worker_id'], axis=1, inplace=True)
+    aggregated_df = aggregated_df.fillna(no_consensus_flag)
+    consensus_results_df = aggregated_df.reset_index()
+    consensus_results_df.drop('level_2', axis=1, inplace=True)
+    return consensus_results_df
+
+
+def make_consensus_df_w_worker_id(combined_results_df, combined_consensus_results_df):
+    consensus_with_worker_id_df = pd.DataFrame(columns=list(combined_consensus_results_df.columns) + ['worker_id', 'consensus_category'])
+    for hitbox_id, rows in combined_results_df.groupby(['hit_id', 'box_id']):
+        this_consensus_row = combined_consensus_results_df[
+            (combined_consensus_results_df['hit_id'] == hitbox_id[0]) & (combined_consensus_results_df['box_id'] == hitbox_id[1])]
+        new_rows = rows.copy()
+        new_rows['consensus_category'] = this_consensus_row['category'].values[0]
+        consensus_with_worker_id_df = consensus_with_worker_id_df.append(new_rows)
+    return consensus_with_worker_id_df
 
 
 def form_annotation_url(page_name):
@@ -181,7 +202,7 @@ def process_annotation_results(anno_page_name, boxes, unannotated_page, annotati
 
 def write_consensus_results(page_name, boxes):
     unaltered_annotations = load_local_annotation(page_name)
-    local_result_path = './ai2-vision-turk-data/textbook-annotation-test/test-annotations/'
+    local_result_path = './ai2-vision-turk-data/textbook-annotation-test/newly-labeled-annotations/'
     process_annotation_results(page_name, boxes, unaltered_annotations, local_result_path, page_schema)
 
 
