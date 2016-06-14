@@ -63,9 +63,7 @@ def create_single_hit(mturk_connection, url, static_hit_params):
     """
     creates a single HIT from a provided url
     """
-    
     hit_params = build_hit_params(url, static_hit_params)
-    
     create_hit_result = mturk_connection.create_hit(
         title=hit_params['title'],
         description=hit_params['description'],
@@ -91,9 +89,21 @@ def delete_all_hits(mturk_connection):
         mturk_connection.disable_hit(hit.HITId)
 
 
+def count_pages_in_df(any_result_df):
+    return len(pd.unique(any_result_df['page']))
+
+
+def count_pages_with_cat(consensus_df, category):
+    return len(pd.unique(consensus_df[consensus_df['category'] == category]['page']))
+
+
+def delete_some_hits(mturk_connection, hit_ids):
+    for hit in hit_ids.keys():
+        mturk_connection.disable_hit(hit)
+
+
 def get_completed_hits(mturk_connection):
     reviewable_hits = []
-
     page_n = 1
     hits_left = True
     while hits_left:
@@ -132,8 +142,50 @@ def process_raw_hits(assignments_by_hit):
 def accept_hits(mturk_connection, assignments_to_approve):
     for hit_id, hit_assignments in assignments_to_approve.items():
         for assignment in hit_assignments:
-            mturk_connection.approve_assignment(assignment.AssignmentId)
-        mturk_connection.disable_hit(hit_id)
+            if assignment.AssignmentStatus == 'Submitted':
+                mturk_connection.approve_assignment(assignment.AssignmentId)
+            else:
+                print assignment.AssignmentStatus
+        # mturk_connection.disable_hit(hit_id)
+
+
+def match_workers_assignments(worker_list, worker_result_df):
+    match_df = worker_result_df[worker_result_df['worker_id'].isin(worker_list)]
+    return pd.unique(match_df['assignment_id']).tolist(), pd.unique(match_df['worker_id']).tolist()
+
+
+def reject_assignments(mturk_connection, workers_to_reject, worker_result_df):
+    feedback_message = """
+    Your HITs contained many incomplete or incorrect pages.
+    """
+    assignments_to_reject, workers_rejected = match_workers_assignments(workers_to_reject, worker_result_df)
+    reject_count = len(assignments_to_reject)
+    worker_count = len(workers_rejected)
+    for assignment_id in assignments_to_reject:
+        try:
+            mturk_connection.reject_assignment(assignment_id, feedback_message)
+        except boto.mturk.connection.MTurkRequestError:
+            print 'assignment ' + str(assignment_id) + ' already accepted or rejected'
+
+    return reject_count, worker_count
+
+
+def ban_bad_workers(mturk_connection, worker_ids):
+    for worker in worker_ids:
+        reason_for_block = """
+        Worker's submissions were largely incomplete.
+        """
+        print 'blocking ' + str(worker)
+        mturk_connection.block_worker(worker, reason_for_block)
+
+
+def get_assignment_statuses(assignment_results):
+    assignment_status = []
+    for hit_id, assignments in assignment_results.items():
+        for assignment in assignments:
+            assignment_status.append(assignment.AssignmentStatus)
+    status_series = pd.Series(assignment_status)
+    return status_series.value_counts()
 
 
 def make_results_df(raw_hit_results):
@@ -191,7 +243,6 @@ def process_annotation_results(anno_page_name, boxes, unannotated_page, annotati
         unannotated_page['text'][box_id]['category'] = category
 
     boxes.apply(update_box, axis=1)
-
     # validator = jsonschema.Draft4Validator(page_schema)
 #     validator.validate(json.loads(json.dumps(unannotated_page)))
     file_path = annotations_folder + anno_page_name.replace('jpeg', 'json').replace("\\", "")
@@ -211,11 +262,11 @@ def write_results_df(aggregate_results_df):
         write_consensus_results(page, boxes)
 
 
-def review_results(pages_to_review):
+def review_results(pages_to_review, annotation_dir='newly-labeled-annotations/'):
     review_api_endpoint = 'http://localhost:8080/api/review'
-    payload = {'pages_to_review': str(pages_to_review)}
+    payload = {'pages_to_review': str(pages_to_review), 'annotation_dir': annotation_dir}
     headers = {'content-type': 'application/json'}
-    requests.post(review_api_endpoint, data=json.dumps(payload), headers=headers)
+    return requests.post(review_api_endpoint, data=json.dumps(payload), headers=headers)
 
 
 def pickle_this(results_df, file_name):
