@@ -44,7 +44,7 @@ def unmerge_boxes_single_page(page_image):
     json_file = page_image.replace('.jpeg', '.json')
 
     base_path = './ai2-vision-turk-data/textbook-annotation-test/'
-    overmerged_dir = 'labeled-annotations/'
+    overmerged_dir = 'newly-labeled-annotations/'
     unmerged_dir = 'annotations_ws/'
     lessmerged_dir = 'lessmerged-annotations/'
     merged_anno_path = base_path + overmerged_dir + json_file

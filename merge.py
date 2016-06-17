@@ -113,6 +113,7 @@ def horizontal_overlap2(this_box, other_box, merge_p):
     return (overlap / float(comp_box_width)) > merge_p['near_overlap_x']
 
 
+
 def vertical_overlap(this_box, other_box, merge_p):
     boxes_y_coords = [[start_y(this_box), end_y(this_box)], [start_y(other_box), end_y(other_box)]]
     ordered_boxes = sorted(boxes_y_coords)
@@ -186,7 +187,7 @@ def merge_adjacent_lines(this_box, other_box, merge_p):
     return (comp_all or (comp_start and not comp_line_length)) and size_comp
 
 
-def make_annotation_json(box, book_name, page_n):
+def make_annotation_json(box, book_name, page_n, category):
     def point_to_tuple(box):
         return tuple(OrderedDict(sorted(box.items())).values())
 
@@ -200,7 +201,7 @@ def make_annotation_json(box, book_name, page_n):
         bounding_rectangle = get_bbox_tuples(box)
         annotation['text'][box_id] = {
             "box_id": box_id,
-            "category": "unlabeled",
+            "category": category,
             "contents": box['value'],
             "score": box['score'],
             "rectangle": bounding_rectangle,
@@ -230,6 +231,7 @@ def merge_boxes(detections, merge_params, book_name, page_n):
     sorted_detections = OrderedDict(sorted(int_keys.items()))
 
     def merge_box_values(g, book_name, page_n):
+
         min_x = min(map(lambda x: start_x(x), g))
         max_x = max(map(lambda x: end_x(x), g))
         min_y = min(map(lambda x: start_y(x), g))
@@ -237,8 +239,9 @@ def merge_boxes(detections, merge_params, book_name, page_n):
         words = ' '.join(map(lambda x: get_value(x), g))
         score = sum([get_score(x) for x in g])/len(g)
         v_dim = get_v_dim(g[0])
+        category = g[0]['category']
         detection = Detection(min_x, min_y, max_x, max_y, words, score, v_dim)
-        new_detection = make_annotation_json(detection.to_JSON(), book_name, page_n)
+        new_detection = make_annotation_json(detection.to_JSON(), book_name, page_n, category)
         return new_detection
 
     def merge_horizontal_pass(detected_boxes, merge_p):
@@ -312,8 +315,10 @@ def merge_boxes(detections, merge_params, book_name, page_n):
 
     horizontal_pass_dets = merge_horizontal_pass(sorted_detections, merge_params)
     overlap_pass_dets = merge_final_pass(horizontal_pass_dets, merge_params)
-    vertical_pass_combined = merge_vertical_pass(overlap_pass_dets, merge_params)
-    return vertical_pass_combined
+    overlap_pass_dets2 = merge_final_pass(overlap_pass_dets, merge_params)
+    # vertical_pass_combined = merge_vertical_pass(overlap_pass_dets, merge_params)
+    return overlap_pass_dets2
+    # return vertical_pass_combined
 
 
 def merge_single_page(file_path, merge_params, book_name, page_n):
@@ -323,20 +328,23 @@ def merge_single_page(file_path, merge_params, book_name, page_n):
     return merged_annotation
 
 
-def merge_single_book(book_name, (start_n, stop_n), destination_path, merge_params):
-    base_path = './ai2-vision-turk-data/textbook-annotation-test/annotations_ws/'
+def merge_single_book(book_name, (start_n, stop_n), destination_path, base_path, merge_params):
+    # base_path = './ai2-vision-turk-data/textbook-annotation-test/annotations_ws/'
     for page_n in range(start_n, stop_n):
-        file_path = base_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
-        merged_text_anno = merge_single_page(file_path, merge_params, book_name, page_n)
-        merged_text_named = {'T'+str(i + 1): merged_text_anno[i] for i in range(len(merged_text_anno))}
+        try:
+            file_path = base_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
+            merged_text_anno = merge_single_page(file_path, merge_params, book_name, page_n)
+            merged_text_named = {'T'+str(i + 1): merged_text_anno[i] for i in range(len(merged_text_anno))}
 
-        for name, detection in merged_text_named.items():
-            detection['box_id'] = name
+            for name, detection in merged_text_named.items():
+                detection['box_id'] = name
 
-        new_file_path = destination_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
-        full_anno = {"text": merged_text_named, "figure": {}, "relationship": {}}
+            new_file_path = destination_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
+            full_anno = {"text": merged_text_named, "figure": {}, "relationship": {}}
 
-        with open(new_file_path, 'w') as f:
-            json.dump(full_anno, f)
+            with open(new_file_path, 'w') as f:
+                json.dump(full_anno, f)
+        except IOError as e:
+            print e
     return
 
