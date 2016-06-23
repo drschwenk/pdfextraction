@@ -201,6 +201,23 @@ def make_results_df(raw_hit_results):
     return results_df
 
 
+def make_question_results_df(raw_hit_results):
+    col_names = ['page', 'category', 'hit_id', 'assignment_id', 'box_id', 'worker_id', 'group_n']
+    results_df = pd.DataFrame(columns=col_names)
+    for hit_id, assignments in raw_hit_results.items():
+        for assignment in assignments:
+            for a_id, annotation in assignment.items():
+                for page, labeled_text in annotation.items():
+                    for box in labeled_text:
+                        if 'group_n' in box.keys():
+                            group_n = box['group_n']
+                        else:
+                            group_n = 0
+                        results_df.loc[len(results_df)] = \
+                            [page, box['category'], hit_id, a_id, box['id'], box['worker_id'], str(group_n)]
+    return results_df
+
+
 def make_consensus_df(results_df, no_consensus_flag):
     grouped_by_page = results_df.groupby(['page', 'box_id'])
     aggregated_df = grouped_by_page.agg(pd.DataFrame.mode)
@@ -251,15 +268,15 @@ def process_annotation_results(anno_page_name, boxes, unannotated_page, annotati
     return
 
 
-def write_consensus_results(page_name, boxes):
+def write_consensus_results(page_name, boxes, local_result_path):
     unaltered_annotations = load_local_annotation(page_name)
-    local_result_path = './ai2-vision-turk-data/textbook-annotation-test/newly-labeled-annotations/'
     process_annotation_results(page_name, boxes, unaltered_annotations, local_result_path, page_schema)
 
 
-def write_results_df(aggregate_results_df):
+def write_results_df(aggregate_results_df, local_result_path='./ai2-vision-turk-data/textbook-annotation-test/'
+                                                             'newly-labeled-annotations/'):
     for page, boxes in aggregate_results_df.groupby('page'):
-        write_consensus_results(page, boxes)
+        write_consensus_results(page, boxes, local_result_path)
 
 
 def review_results(pages_to_review, annotation_dir='newly-labeled-annotations/'):

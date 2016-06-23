@@ -40,13 +40,9 @@ def write_unmerged_annotations(unmerged_text_anno, new_file_path):
         json.dump(full_anno, f)
 
 
-def unmerge_boxes_single_page(page_image):
+def unmerge_boxes_single_page(page_image, base_path, overmerged_dir, unmerged_dir, lessmerged_dir):
     json_file = page_image.replace('.jpeg', '.json')
 
-    base_path = './ai2-vision-turk-data/textbook-annotation-test/'
-    overmerged_dir = 'newly-labeled-annotations/'
-    unmerged_dir = 'annotations_ws/'
-    lessmerged_dir = 'lessmerged-annotations/'
     merged_anno_path = base_path + overmerged_dir + json_file
     unmerged_anno_path = base_path + unmerged_dir + json_file
     lessmerged_anno_path = base_path + lessmerged_dir + json_file
@@ -60,10 +56,10 @@ def unmerge_boxes_single_page(page_image):
     write_unmerged_annotations(unmerged_text_boxes, lessmerged_anno_path)
 
 
-def unmerge_single_textbook(book_name, (start_n, stop_n)):
+def unmerge_single_textbook(book_name, (start_n, stop_n), base_path, overmerged_dir, unmerged_dir, destination_dir):
     for page_n in range(start_n, stop_n):
         page_image = book_name.replace('.pdf', '') + '_' + str(page_n) + '.jpeg'
         try:
-            unmerge_boxes_single_page(page_image)
+            unmerge_boxes_single_page(page_image, base_path, overmerged_dir, unmerged_dir, destination_dir)
         except IOError as e:
             print e

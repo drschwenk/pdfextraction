@@ -1,10 +1,6 @@
 import json
 from collections import OrderedDict
 from collections import defaultdict
-import operator
-
-
-from ocr_pipeline import assemble_url
 
 
 class Detection:
@@ -218,7 +214,6 @@ def make_annotation_json(box, book_name, page_n, category):
         }
         ids += 1
     except KeyError:
-        return
         annotation['text'] = {}
 
     annotation['figure'] = {}
