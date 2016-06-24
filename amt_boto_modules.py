@@ -239,25 +239,30 @@ def make_consensus_df_w_worker_id(combined_results_df, combined_consensus_result
     return consensus_with_worker_id_df
 
 
-def form_annotation_url(page_name):
-    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/merged-annotations/'
-    return base_path + page_name.replace('jpeg', 'json')
+def form_annotation_url(page_name, anno_dir):
+    file_path = base_path + anno_dir
+    return file_path + page_name.replace('jpeg', 'json')
 
 
-def load_local_annotation(page_name):
-    base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/merged-annotations/'
-    file_path = base_path + page_name.replace('jpeg', 'json')
+def load_local_annotation(page_name, anno_dir):
+    file_path = base_path + anno_dir + page_name.replace('jpeg', 'json')
     with open(file_path, 'r') as f:
         local_annotations = json.load(f)
     return local_annotations
 
 
 def process_annotation_results(anno_page_name, boxes, unannotated_page, annotations_folder, page_schema):
-
     def update_box(result_row):
         box_id = result_row['box_id']
         category = result_row['category']
-        unannotated_page['text'][box_id]['category'] = category
+        if box_id[0] == 'Q':
+            annotation_type = 'question'
+            group_n = result_row['group_n']
+            unannotated_page[annotation_type][box_id]['category'] = category
+            unannotated_page[annotation_type][box_id]['group_n'] = group_n
+        else:
+            annotation_type = 'text'
+            unannotated_page[annotation_type][box_id]['category'] = category
 
     boxes.apply(update_box, axis=1)
     # validator = jsonschema.Draft4Validator(page_schema)
@@ -268,15 +273,15 @@ def process_annotation_results(anno_page_name, boxes, unannotated_page, annotati
     return
 
 
-def write_consensus_results(page_name, boxes, local_result_path):
-    unaltered_annotations = load_local_annotation(page_name)
+def write_consensus_results(page_name, boxes, local_result_path, anno_dir):
+    unaltered_annotations = load_local_annotation(page_name, anno_dir)
     process_annotation_results(page_name, boxes, unaltered_annotations, local_result_path, page_schema)
 
 
-def write_results_df(aggregate_results_df, local_result_path='./ai2-vision-turk-data/textbook-annotation-test/'
-                                                             'newly-labeled-annotations/'):
+def write_results_df(aggregate_results_df, anno_dir, local_result_dir='newly-labeled-annotations/'):
+    local_result_path = base_path + local_result_dir
     for page, boxes in aggregate_results_df.groupby('page'):
-        write_consensus_results(page, boxes, local_result_path)
+        write_consensus_results(page, boxes, local_result_path, anno_dir)
 
 
 def review_results(pages_to_review, annotation_dir='newly-labeled-annotations/'):
@@ -290,3 +295,4 @@ def pickle_this(results_df, file_name):
     with open(file_name, 'w') as f:
         pickle.dump(results_df, f)
 
+base_path = '/Users/schwenk/wrk/notebooks/stb/ai2-vision-turk-data/textbook-annotation-test/'
