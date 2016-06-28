@@ -225,6 +225,10 @@ def merge_boxes(detections, merge_params, book_name, page_n):
     int_keys = {int(k[1:]): v for k, v in sorted(detections.items(), key=lambda x: x[1]['rectangle'][0][1])}
     sorted_detections = OrderedDict(sorted(int_keys.items()))
 
+    def merge_categories(g):
+        possible_cats = [box['category'] for box in g]
+        return sorted(possible_cats)[0]
+
     def merge_box_values(g, book_name, page_n):
 
         min_x = min(map(lambda x: start_x(x), g))
@@ -234,7 +238,7 @@ def merge_boxes(detections, merge_params, book_name, page_n):
         words = ' '.join(map(lambda x: get_value(x), g))
         score = sum([get_score(x) for x in g])/len(g)
         v_dim = get_v_dim(g[0])
-        category = g[0]['category']
+        category = merge_categories(g)
         detection = Detection(min_x, min_y, max_x, max_y, words, score, v_dim)
         new_detection = make_annotation_json(detection.to_JSON(), book_name, page_n, category)
         return new_detection

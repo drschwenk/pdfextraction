@@ -255,15 +255,26 @@ def process_annotation_results(anno_page_name, boxes, unannotated_page, annotati
     def update_box(result_row):
         box_id = result_row['box_id']
         category = result_row['category']
-        if box_id[0] == 'Q':
-            annotation_type = 'question'
-            group_n = result_row['group_n']
-            unannotated_page[annotation_type][box_id]['category'] = category
-            unannotated_page[annotation_type][box_id]['group_n'] = group_n
-        else:
-            annotation_type = 'text'
-            unannotated_page[annotation_type][box_id]['category'] = category
-
+        try:
+            if box_id[0] == 'Q':
+                annotation_type = 'question'
+                group_n = result_row['group_n']
+                unannotated_page[annotation_type][box_id]['category'] = category
+                unannotated_page[annotation_type][box_id]['group_n'] = group_n
+            else:
+                annotation_type = 'text'
+                unannotated_page[annotation_type][box_id]['category'] = category
+        except KeyError:
+            if box_id[0] == 'T':
+                annotation_type = 'question'
+                group_n = result_row['group_n']
+                unannotated_page[annotation_type][box_id.replace('T', 'Q')]['category'] = category
+                unannotated_page[annotation_type][box_id.replace('T', 'Q')]['group_n'] = group_n
+            elif box_id[0] == 'Q':
+                annotation_type = 'text'
+                group_n = result_row['group_n']
+                unannotated_page[annotation_type][box_id.replace('Q', 'T')]['category'] = category
+                unannotated_page[annotation_type][box_id.replace('Q', 'T')]['group_n'] = group_n
     boxes.apply(update_box, axis=1)
     # validator = jsonschema.Draft4Validator(page_schema)
 #     validator.validate(json.loads(json.dumps(unannotated_page)))
