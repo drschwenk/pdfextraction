@@ -1,7 +1,7 @@
 import json
 from collections import OrderedDict
 from collections import defaultdict
-
+from copy import deepcopy
 
 class Detection:
 
@@ -221,6 +221,15 @@ def make_annotation_json(box, book_name, page_n, category):
     return annotation['text'].values()[0]
 
 
+def fuzzy_sort(box_group, fuzzy_tolerance):
+    regular_sorted_boxes = sorted(box_group, key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+    fuzzy_sorted_group = deepcopy(regular_sorted_boxes)
+    for idx in range(1, len(fuzzy_sorted_group)):
+        if fuzzy_sorted_group[idx-1]['rectangle'][0][1] + fuzzy_tolerance > fuzzy_sorted_group[idx]['rectangle'][0][1]:
+            fuzzy_sorted_group[idx - 1], fuzzy_sorted_group[idx] = fuzzy_sorted_group[idx], fuzzy_sorted_group[idx-1]
+    return fuzzy_sorted_group
+
+
 def merge_boxes(detections, merge_params, book_name, page_n):
     int_keys = {int(k[1:]): v for k, v in sorted(detections.items(), key=lambda x: x[1]['rectangle'][0][1])}
     sorted_detections = OrderedDict(sorted(int_keys.items()))
@@ -229,16 +238,17 @@ def merge_boxes(detections, merge_params, book_name, page_n):
         possible_cats = [box['category'] for box in g]
         return sorted(possible_cats)[0]
 
-    def merge_box_values(g, book_name, page_n):
-
-        min_x = min(map(lambda x: start_x(x), g))
-        max_x = max(map(lambda x: end_x(x), g))
-        min_y = min(map(lambda x: start_y(x), g))
-        max_y = max(map(lambda x: end_y(x), g))
-        words = ' '.join(map(lambda x: get_value(x), g))
-        score = sum([get_score(x) for x in g])/len(g)
-        v_dim = get_v_dim(g[0])
-        category = merge_categories(g)
+    def merge_box_values(box_group, book_name, page_n):
+        # sorted_g = sorted(sorted_g, key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+        sorted_g = fuzzy_sort(box_group, 5)
+        min_x = min(map(lambda x: start_x(x), sorted_g))
+        max_x = max(map(lambda x: end_x(x), sorted_g))
+        min_y = min(map(lambda x: start_y(x), sorted_g))
+        max_y = max(map(lambda x: end_y(x), sorted_g))
+        words = ' '.join(map(lambda x: get_value(x), sorted_g))
+        score = sum([get_score(x) for x in sorted_g]) / len(sorted_g)
+        v_dim = get_v_dim(sorted_g[0])
+        category = merge_categories(sorted_g)
         detection = Detection(min_x, min_y, max_x, max_y, words, score, v_dim)
         new_detection = make_annotation_json(detection.to_JSON(), book_name, page_n, category)
         return new_detection

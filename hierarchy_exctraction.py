@@ -21,6 +21,22 @@ def make_box_row(row_dict, pos_idx):
     return new_row
 
 
+def write_predicted_groups(page_results, base_path, test_path):
+    page = page_results[0]
+    predicted_boxes = page_results[-1]
+    page_file_path = base_path + page.replace('jpeg', 'json')
+    new_file_path = test_path + page.replace('jpeg', 'json')
+
+    with open(page_file_path) as f:
+        all_page_boxes = json.load(f)
+
+    for box in predicted_boxes:
+        all_page_boxes['question'][box['box_id']]['group_n'] = box['predicted_group_n']
+
+    with open(new_file_path, 'w') as f:
+        json.dump(all_page_boxes, f)
+
+
 def assign_group_numbers(ordered_question_boxes):
     current_group_n = 0
     current_outer_indent = ordered_question_boxes[0]['start_x']
@@ -90,17 +106,27 @@ def predict_and_verify_groups(pages, base_path):
     return overall_accuracy, total_wrong, total_num_boxes, results_by_page
 
 
-def write_predicted_groups(page_results, base_path, test_path):
-    page = page_results[0]
-    predicted_boxes = page_results[-1]
-    page_file_path = base_path + page.replace('jpeg', 'json')
-    new_file_path = test_path + page.replace('jpeg', 'json')
+def label_multi_choice_components(question_group):
+    results_by_page = []
+    total_num_boxes = 0
+    for page in pages:
+        page_file_path = base_path + page.replace('jpeg', 'json')
+        with open(page_file_path) as f:
+            page_boxes = json.load(f)
 
-    with open(page_file_path) as f:
-        all_page_boxes = json.load(f)    
+        for qn, qv in page_boxes['question'].items():
+            total_num_boxes += 1
 
-    for box in predicted_boxes:
-        all_page_boxes['question'][box['box_id']]['group_n'] = box['predicted_group_n']
+        q_series = page_boxes['question']
+        vertically_ordered_question = sorted(q_series.values(), key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+        vertically_ordered_question_feat = [make_box_row(box, idx) for idx, box in enumerate(vertically_ordered_question)]
+        boxes_w_predicts = assign_group_numbers(vertically_ordered_question_feat)
+        if boxes_w_predicts:
+            n_wrong, box_n_this_page, fraction_right = check_group_numbers(boxes_w_predicts)
+            total_num_boxes += box_n_this_page
+            if fraction_right:
+                results_by_page.append((page, n_wrong, fraction_right, boxes_w_predicts))
 
-    with open(new_file_path, 'w') as f:
-        json.dump(all_page_boxes, f)
+    total_wrong = sum([res[1] for res in results_by_page])
+    overall_accuracy = 1 - total_wrong / float(total_num_boxes)
+    return overall_accuracy, total_wrong, total_num_boxes, results_by_page
