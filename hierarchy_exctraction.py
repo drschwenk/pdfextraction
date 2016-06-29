@@ -135,6 +135,27 @@ def label_multi_choice_components(question_group):
 
 
 def assemble_questions(pages, file_path):
+
+    def make_possible_answer_entry(structural_label, complete_questions, qv):
+        last_type_seen[0] = 'possible_answer'
+        choice_id = "answer_choice_" + structural_label
+        complete_questions[current_question_id[0]]['answer_choices'][choice_id] = {
+            "structural_label": structural_label,
+            "possible_answer": qv
+        }
+
+    def make_question_entry(ask_index, complete_questions, qv):
+        last_type_seen[0] = 'question'
+        box_text = qv['contents']
+        current_question_id[0] = 'full_Q_' + box_text[:1]
+        complete_questions[current_question_id[0]] = {
+            "question_id": current_question_id[0],
+            "category": box_category,
+            "structural_id": box_text[:2],
+            "asks": {'Qc' + str(ask_index): qv},
+            "answer_choices": {}
+        }
+
     numeric_starters = [str(n) + '.' for n in range(10)]
     letter_starters = [char for char in string.ascii_uppercase[:6]]
     letter_punct_starters = [char + '.' for char in string.ascii_uppercase[:6]]
@@ -151,8 +172,10 @@ def assemble_questions(pages, file_path):
         q_series = page_boxes['question']
         vertically_ordered_question = sorted(q_series.values(),
                                              key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
-        current_question_id = False
+        last_type_seen = [0]
+        current_question_id = [False]
         ask_index = 0
+        unlabeled_choice_idx = 1
         for qv in vertically_ordered_question:
             box_category = qv['category']
             box_text = qv['contents'].replace('(', '').replace(')', '').replace('O', '')
@@ -160,34 +183,26 @@ def assemble_questions(pages, file_path):
             del qv['score']
             del qv['v_dim']
             del qv['category']
-
             if box_text[:2] in numeric_starters:
                 ask_index = 1
-                current_question_id = 'full_Q_' + box_text[:1]
-                complete_questions[current_question_id] = {
-                    "question_id": current_question_id,
-                    "category": box_category,
-                    "structural_id": box_text[:2],
-                    "asks": {'Qc' + str(ask_index): qv},
-                    "answer_choices": {}
-                }
+                make_question_entry(ask_index, complete_questions, qv)
+
             elif re.findall(re_pattern, box_text) and re.findall(re_pattern, box_text)[0] in letter_starters:
                 structural_label = re.findall(re_pattern, box_text)[0]
-                current_choice_id = "answer_choice_" + structural_label
-                complete_questions[current_question_id]['answer_choices'][current_choice_id] = {
-                    "structural_label": structural_label,
-                    "possible_answer": qv
-                }
+                make_possible_answer_entry(structural_label, complete_questions, qv)
             elif box_text[-1] in letter_starters:
                 structural_label = box_text[-1]
-                current_choice_id = "answer_choice_" + structural_label
-                complete_questions[current_question_id]['answer_choices'][current_choice_id] = {
-                    "structural_label": structural_label,
-                    "possible_answer": qv
-                }
+                make_possible_answer_entry(structural_label, complete_questions, qv)
+
             elif current_question_id and box_category == 'Multiple Choice':
-                ask_index += 1
-                complete_questions[current_question_id]['asks']['Qc' + str(ask_index)] = qv
+                if last_type_seen[0] == 'question':
+                    ask_index += 1
+                    make_question_entry(ask_index, complete_questions, qv)
+                elif last_type_seen[0] == 'possible_answer':
+                    structural_label = 'Z' + str(unlabeled_choice_idx)
+                    unlabeled_choice_idx += 1
+                    make_possible_answer_entry(structural_label, complete_questions, qv)
+
             else:
                 print 'miss'
                 print box_text
