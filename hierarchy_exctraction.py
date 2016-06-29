@@ -1,4 +1,6 @@
 import json
+import string
+import re
 
 
 def print_contents(box):
@@ -130,3 +132,66 @@ def label_multi_choice_components(question_group):
     total_wrong = sum([res[1] for res in results_by_page])
     overall_accuracy = 1 - total_wrong / float(total_num_boxes)
     return overall_accuracy, total_wrong, total_num_boxes, results_by_page
+
+
+def assemble_questions(pages, file_path):
+    numeric_starters = [str(n) + '.' for n in range(10)]
+    letter_starters = [char for char in string.ascii_uppercase[:6]]
+    letter_punct_starters = [char + '.' for char in string.ascii_uppercase[:6]]
+
+    re_pattern = re.compile('([A-Z])(?:[a-z]?){1}\s')
+
+    for page in pages:
+        complete_questions = {}
+
+        page_file_path = file_path + page.replace('jpeg', 'json')
+        with open(page_file_path) as f:
+            page_boxes = json.load(f)
+
+        q_series = page_boxes['question']
+        vertically_ordered_question = sorted(q_series.values(),
+                                             key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+        current_question_id = False
+        ask_index = 0
+        for qv in vertically_ordered_question:
+            box_category = qv['category']
+            box_text = qv['contents'].replace('(', '').replace(')', '').replace('O', '')
+            del qv['source']
+            del qv['score']
+            del qv['v_dim']
+            del qv['category']
+
+            if box_text[:2] in numeric_starters:
+                ask_index = 1
+                current_question_id = 'full_Q_' + box_text[:1]
+                complete_questions[current_question_id] = {
+                    "question_id": current_question_id,
+                    "category": box_category,
+                    "structural_id": box_text[:2],
+                    "asks": {'Qc' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+            elif re.findall(re_pattern, box_text) and re.findall(re_pattern, box_text)[0] in letter_starters:
+                structural_label = re.findall(re_pattern, box_text)[0]
+                current_choice_id = "answer_choice_" + structural_label
+                complete_questions[current_question_id]['answer_choices'][current_choice_id] = {
+                    "structural_label": structural_label,
+                    "possible_answer": qv
+                }
+            elif box_text[-1] in letter_starters:
+                structural_label = box_text[-1]
+                current_choice_id = "answer_choice_" + structural_label
+                complete_questions[current_question_id]['answer_choices'][current_choice_id] = {
+                    "structural_label": structural_label,
+                    "possible_answer": qv
+                }
+            elif current_question_id and box_category == 'Multiple Choice':
+                ask_index += 1
+                complete_questions[current_question_id]['asks']['Qc' + str(ask_index)] = qv
+            else:
+                print 'miss'
+                print box_text
+                print
+    return complete_questions
+
+
