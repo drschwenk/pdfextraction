@@ -2,6 +2,7 @@ import json
 import string
 import re
 from collections import defaultdict
+from copy import deepcopy
 
 
 def print_contents(box):
@@ -109,7 +110,7 @@ def predict_and_verify_groups(pages, base_path):
     return overall_accuracy, total_wrong, total_num_boxes, results_by_page
 
 
-def label_multi_choice_components(question_group):
+def label_multi_choice_components(base_path, pages):
     results_by_page = []
     total_num_boxes = 0
     for page in pages:
@@ -135,6 +136,599 @@ def label_multi_choice_components(question_group):
     return overall_accuracy, total_wrong, total_num_boxes, results_by_page
 
 
+def parse_tf_questions(question_group):
+
+    def make_possible_answer_entry(structural_label, complete_questions, qv):
+        last_type_seen[0] = 'possible_answer'
+        choice_id = "answer_choice_" + structural_label
+        complete_questions[current_group_n][current_question_id[0]]['answer_choices'][choice_id] = {
+            "structural_label": structural_label,
+            "possible_answer": qv
+        }
+
+    def make_question_entry(ask_index, complete_questions, qv, structural_label):
+        last_type_seen[0] = 'question'
+        box_text = qv['contents']
+        current_question_id[0] = 'full_Q_' + structural_label
+        complete_questions[current_group_n][current_question_id[0]] = {
+            "question_id": current_question_id[0],
+            "category": box_category,
+            "structural_id": structural_label,
+            "asks": {'Qc' + str(ask_index): qv},
+            "answer_choices": {},
+        }
+
+    def make_instructions_entry(instuctions, inst_id):
+        instructions[current_group_n] = {
+            "instruction": {'I' + str(inst_id): qv},
+        }
+
+    numeric_starters = [str(n) + '.' for n in range(10)]
+    letter_starters = [char for char in string.ascii_uppercase[:6]]
+    letter_punct_starters = [char + '.' for char in string.ascii_uppercase[:6]]
+
+    mc_option_pattern = re.compile('([A-Z])(?:[a-z]?){1}\s')
+
+    complete_questions = defaultdict(dict)
+    instructions = defaultdict(dict)
+
+    q_series = question_group
+    vertically_ordered_question = sorted(q_series.values(),
+                                         key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+    last_type_seen = [0]
+    misfits_created = False
+    current_question_id = [0]
+    ask_index = 0
+    unlabeled_choice_idx = 1
+    current_group_n = 0
+    instructions_idx = 0
+    for qv in vertically_ordered_question:
+        current_group_n = 'G' + str(qv['group_n'])
+        box_category = qv['category']
+        box_text = qv['contents'].replace('(', '').replace(')', '').replace('O', '')
+        del qv['source']
+        del qv['score']
+        del qv['v_dim']
+        del qv['category']
+
+        if box_text[:2] in letter_punct_starters:
+            instructions_idx += 1
+            make_instructions_entry(instructions, instructions_idx)
+
+        elif box_text[:2] in numeric_starters:
+            last_question_structural_id = box_text[:2]
+            ask_index += 1
+            make_question_entry(ask_index, complete_questions, qv, last_question_structural_id)
+
+        elif re.findall(mc_option_pattern, box_text) and re.findall(mc_option_pattern, box_text)[0] in letter_starters:
+            structural_label = re.findall(mc_option_pattern, box_text)[0]
+            make_possible_answer_entry(structural_label, complete_questions, qv)
+        elif box_text[-1] in letter_starters:
+            structural_label = box_text[-1]
+            make_possible_answer_entry(structural_label, complete_questions, qv)
+
+        elif current_question_id:
+            if last_type_seen[0] == 'possible_answer':
+                structural_label = 'Z' + str(unlabeled_choice_idx)
+                unlabeled_choice_idx += 1
+                make_possible_answer_entry(structural_label, complete_questions, qv)
+            elif last_type_seen[0] == 'question':
+                ask_index += 1
+                complete_questions[current_group_n][current_question_id[0]]['asks']['Qc' + str(ask_index)] = qv
+        else:
+            if not misfits_created:
+                complete_questions[current_group_n]['misfits'] = {
+                }
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+                misfits_created = True
+            elif misfits_created:
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+            else:
+                pass
+                print 'miss'
+                print box_text
+                print
+
+    return complete_questions, instructions
+
+
+def parse_fib_questions(question_group):
+
+    def make_possible_answer_entry(structural_label, complete_questions, qv):
+        last_type_seen[0] = 'possible_answer'
+        choice_id = "answer_choice_" + structural_label
+        complete_questions[current_group_n][current_question_id[0]]['answer_choices'][choice_id] = {
+            "structural_label": structural_label,
+            "possible_answer": qv
+        }
+
+    def make_question_entry(ask_index, complete_questions, qv, structural_label):
+        last_type_seen[0] = 'question'
+        box_text = qv['contents']
+        current_question_id[0] = 'full_Q_' + structural_label
+        complete_questions[current_group_n][current_question_id[0]] = {
+            "question_id": current_question_id[0],
+            "category": box_category,
+            "structural_id": structural_label,
+            "asks": {'Qc' + str(ask_index): qv},
+            "answer_choices": {},
+        }
+
+    def make_instructions_entry(instuctions, inst_id):
+        instructions[current_group_n] = {
+            "instruction": {'I' + str(inst_id): qv},
+        }
+
+    numeric_starters = [str(n) + '.' for n in range(10)]
+    letter_starters = [char for char in string.ascii_uppercase[:6]]
+    letter_punct_starters = [char + '.' for char in string.ascii_uppercase[:6]]
+
+    mc_option_pattern = re.compile('([A-Z])(?:[a-z]?){1}\s')
+
+    complete_questions = defaultdict(dict)
+    instructions = defaultdict(dict)
+
+    q_series = question_group
+    vertically_ordered_question = sorted(q_series.values(),
+                                         key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+    last_type_seen = [0]
+    misfits_created = False
+    current_question_id = [0]
+    ask_index = 0
+    unlabeled_choice_idx = 1
+    current_group_n = 0
+    instructions_idx = 0
+    for qv in vertically_ordered_question:
+        current_group_n = 'G' + str(qv['group_n'])
+        box_category = qv['category']
+        box_text = qv['contents'].replace('(', '').replace(')', '').replace('O', '')
+        del qv['source']
+        del qv['score']
+        del qv['v_dim']
+        del qv['category']
+
+        if box_text[:2] in letter_punct_starters:
+            instructions_idx += 1
+            make_instructions_entry(instructions, instructions_idx)
+
+        elif box_text[:2] in numeric_starters:
+            last_question_structural_id = box_text[:2]
+            ask_index += 1
+            make_question_entry(ask_index, complete_questions, qv, last_question_structural_id)
+
+        elif re.findall(mc_option_pattern, box_text) and re.findall(mc_option_pattern, box_text)[0] in letter_starters:
+            structural_label = re.findall(mc_option_pattern, box_text)[0]
+            make_possible_answer_entry(structural_label, complete_questions, qv)
+        elif box_text[-1] in letter_starters:
+            structural_label = box_text[-1]
+            make_possible_answer_entry(structural_label, complete_questions, qv)
+
+        elif current_question_id:
+            if last_type_seen[0] == 'possible_answer':
+                structural_label = 'Z' + str(unlabeled_choice_idx)
+                unlabeled_choice_idx += 1
+                make_possible_answer_entry(structural_label, complete_questions, qv)
+            elif last_type_seen[0] == 'question':
+                ask_index += 1
+                complete_questions[current_group_n][current_question_id[0]]['asks']['Qc' + str(ask_index)] = qv
+        else:
+            if not misfits_created:
+                complete_questions[current_group_n]['misfits'] = {
+                }
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+                misfits_created = True
+            elif misfits_created:
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+            else:
+                pass
+                print 'miss'
+                print box_text
+                print
+
+    return complete_questions, instructions
+
+
+def parse_tf_questions(question_group, first_pass=True):
+
+    def make_possible_answer_entry(structural_label, complete_questions, qv):
+        last_type_seen[0] = 'possible_answer'
+        choice_id = "answer_choice_" + structural_label
+        complete_questions[current_group_n][current_question_id[0]]['answer_choices'][choice_id] = {
+            "structural_label": structural_label,
+            "possible_answer": qv
+        }
+
+    def make_question_entry(ask_index, complete_questions, qv, structural_label):
+        last_type_seen[0] = 'question'
+        box_text = qv['contents']
+        current_question_id[0] = 'full_Q_' + structural_label
+        complete_questions[current_group_n][current_question_id[0]] = {
+            "question_id": current_question_id[0],
+            "category": box_category,
+            "structural_id": structural_label,
+            "asks": {'Qc' + str(ask_index): qv},
+            "answer_choices": {},
+        }
+
+    def make_instructions_entry(instuctions, inst_id):
+        instructions[current_group_n] = {
+            "instruction": {'I' + str(inst_id): qv},
+        }
+
+    numeric_starters = [str(n) + '.' for n in range(10)]
+    letter_punct_starters = [char + '.' for char in string.ascii_uppercase[:6]]
+
+    complete_questions = defaultdict(dict)
+    instructions = defaultdict(dict)
+
+    q_series = deepcopy(question_group)
+    vertically_ordered_question = sorted(q_series.values(),
+                                         key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+    last_type_seen = [0]
+    misfits_created = False
+    current_question_id = [0]
+    ask_index = 0
+    unlabeled_choice_idx = 1
+    current_group_n = 0
+    instructions_idx = 0
+    for qv in vertically_ordered_question:
+        current_group_n = 'G' + str(qv['group_n'])
+        box_category = qv['category']
+        box_text = qv['contents'].replace('(', '').replace(')', '').replace('O', '')
+        del qv['source']
+        del qv['score']
+        del qv['v_dim']
+        del qv['category']
+        if box_text[:2] in letter_punct_starters:
+            if first_pass:
+                instructions_idx += 1
+                make_instructions_entry(instructions, instructions_idx)
+            else:
+                last_question_structural_id = box_text[:2]
+                ask_index += 1
+                make_question_entry(ask_index, complete_questions, qv, last_question_structural_id)
+        elif box_text[:2] in numeric_starters:
+            last_question_structural_id = box_text[:2]
+            ask_index += 1
+            make_question_entry(ask_index, complete_questions, qv, last_question_structural_id)
+        elif ask_index and not ('true' in box_text.lower() or 'false' in box_text.lower()):
+            ask_index += 1
+            complete_questions[current_group_n][current_question_id[0]]['asks']['Qc' + str(ask_index)] = qv
+        elif not first_pass:
+            if not misfits_created:
+                complete_questions[current_group_n]['misfits'] = {
+                }
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+                misfits_created = True
+            elif misfits_created:
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+        elif not first_pass:
+            pass
+            print 'miss'
+            print box_text
+            print
+    if not complete_questions and instructions:
+        pass
+        return parse_sa_questions(question_group, False)
+    return complete_questions, instructions
+
+
+def parse_fib_questions(question_group, first_pass=True):
+
+    def make_possible_answer_entry(structural_label, complete_questions, qv):
+        last_type_seen[0] = 'possible_answer'
+        choice_id = "answer_choice_" + structural_label
+        complete_questions[current_group_n][current_question_id[0]]['answer_choices'][choice_id] = {
+            "structural_label": structural_label,
+            "possible_answer": qv
+        }
+
+    def make_question_entry(ask_index, complete_questions, qv, structural_label):
+        last_type_seen[0] = 'question'
+        box_text = qv['contents']
+        current_question_id[0] = 'full_Q_' + structural_label
+        complete_questions[current_group_n][current_question_id[0]] = {
+            "question_id": current_question_id[0],
+            "category": box_category,
+            "structural_id": structural_label,
+            "asks": {'Qc' + str(ask_index): qv},
+            "answer_choices": {},
+        }
+
+    def make_instructions_entry(instuctions, inst_id):
+        instructions[current_group_n] = {
+            "instruction": {'I' + str(inst_id): qv},
+        }
+
+    numeric_starters = [str(n) + '.' for n in range(10)]
+    letter_punct_starters = [char + '.' for char in string.ascii_uppercase[:6]]
+
+    complete_questions = defaultdict(dict)
+    instructions = defaultdict(dict)
+
+    q_series = deepcopy(question_group)
+    vertically_ordered_question = sorted(q_series.values(),
+                                         key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+    last_type_seen = [0]
+    misfits_created = False
+    current_question_id = [0]
+    ask_index = 0
+    unlabeled_choice_idx = 1
+    current_group_n = 0
+    instructions_idx = 0
+    for qv in vertically_ordered_question:
+        current_group_n = 'G' + str(qv['group_n'])
+        box_category = qv['category']
+        box_text = qv['contents'].replace('(', '').replace(')', '').replace('O', '')
+        del qv['source']
+        del qv['score']
+        del qv['v_dim']
+        del qv['category']
+        if box_text[:2] in letter_punct_starters:
+            if first_pass:
+                instructions_idx += 1
+                make_instructions_entry(instructions, instructions_idx)
+            else:
+                last_question_structural_id = box_text[:2]
+                ask_index += 1
+                make_question_entry(ask_index, complete_questions, qv, last_question_structural_id)
+
+        elif box_text[:2] in numeric_starters:
+            last_question_structural_id = box_text[:2]
+            ask_index += 1
+            make_question_entry(ask_index, complete_questions, qv, last_question_structural_id)
+        elif ask_index:
+            ask_index += 1
+            complete_questions[current_group_n][current_question_id[0]]['asks']['Qc' + str(ask_index)] = qv
+        elif not first_pass:
+            if not misfits_created:
+                complete_questions[current_group_n]['misfits'] = {
+                }
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+                misfits_created = True
+            elif misfits_created:
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+        elif not first_pass:
+            pass
+            print 'miss'
+            print box_text
+            print
+    if not complete_questions and instructions:
+        pass
+        return parse_sa_questions(question_group, False)
+    return complete_questions, instructions
+
+
+def parse_sa_questions(question_group, first_pass=True):
+
+    def make_possible_answer_entry(structural_label, complete_questions, qv):
+        last_type_seen[0] = 'possible_answer'
+        choice_id = "answer_choice_" + structural_label
+        complete_questions[current_group_n][current_question_id[0]]['answer_choices'][choice_id] = {
+            "structural_label": structural_label,
+            "possible_answer": qv
+        }
+
+    def make_question_entry(ask_index, complete_questions, qv, structural_label):
+        last_type_seen[0] = 'question'
+        box_text = qv['contents']
+        current_question_id[0] = 'full_Q_' + structural_label
+        complete_questions[current_group_n][current_question_id[0]] = {
+            "question_id": current_question_id[0],
+            "category": box_category,
+            "structural_id": structural_label,
+            "asks": {'Qc' + str(ask_index): qv},
+            "answer_choices": {},
+        }
+
+    def make_instructions_entry(instuctions, inst_id):
+        instructions[current_group_n] = {
+            "instruction": {'I' + str(inst_id): qv},
+        }
+
+    numeric_starters = [str(n) + '.' for n in range(10)]
+    letter_punct_starters = [char + '.' for char in string.ascii_uppercase[:6]]
+
+    complete_questions = defaultdict(dict)
+    instructions = defaultdict(dict)
+
+    q_series = deepcopy(question_group)
+    vertically_ordered_question = sorted(q_series.values(),
+                                         key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+    last_type_seen = [0]
+    misfits_created = False
+    current_question_id = [0]
+    ask_index = 0
+    unlabeled_choice_idx = 1
+    current_group_n = 0
+    instructions_idx = 0
+    for qv in vertically_ordered_question:
+        current_group_n = 'G' + str(qv['group_n'])
+        box_category = qv['category']
+        box_text = qv['contents'].replace('(', '').replace(')', '').replace('O', '')
+        del qv['source']
+        del qv['score']
+        del qv['v_dim']
+        del qv['category']
+        if box_text[:2] in letter_punct_starters:
+            if first_pass:
+                instructions_idx += 1
+                make_instructions_entry(instructions, instructions_idx)
+            else:
+                last_question_structural_id = box_text[:2]
+                ask_index += 1
+                make_question_entry(ask_index, complete_questions, qv, last_question_structural_id)
+
+        elif box_text[:2] in numeric_starters:
+            last_question_structural_id = box_text[:2]
+            ask_index += 1
+            make_question_entry(ask_index, complete_questions, qv, last_question_structural_id)
+        elif ask_index:
+            ask_index += 1
+            complete_questions[current_group_n][current_question_id[0]]['asks']['Qc' + str(ask_index)] = qv
+        elif not first_pass:
+            if not misfits_created:
+                complete_questions[current_group_n]['misfits'] = {
+                }
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+                misfits_created = True
+            elif misfits_created:
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+        elif not first_pass:
+            pass
+            print 'miss'
+            print box_text
+            print
+    if not complete_questions and instructions:
+        pass
+        return parse_sa_questions(question_group, False)
+    return complete_questions, instructions
+
+
+def parse_mc_questions(question_group):
+
+    def make_possible_answer_entry(structural_label, complete_questions, qv):
+        last_type_seen[0] = 'possible_answer'
+        choice_id = "answer_choice_" + structural_label
+        complete_questions[current_group_n][current_question_id[0]]['answer_choices'][choice_id] = {
+            "structural_label": structural_label,
+            "possible_answer": qv
+        }
+
+    def make_question_entry(ask_index, complete_questions, qv, structural_label):
+        last_type_seen[0] = 'question'
+        box_text = qv['contents']
+        current_question_id[0] = 'full_Q_' + structural_label
+        complete_questions[current_group_n][current_question_id[0]] = {
+            "question_id": current_question_id[0],
+            "category": box_category,
+            "structural_id": structural_label,
+            "asks": {'Qc' + str(ask_index): qv},
+            "answer_choices": {},
+        }
+
+    def make_instructions_entry(instuctions, inst_id):
+        instructions[current_group_n] = {
+            "instruction": {'I' + str(inst_id): qv},
+        }
+
+    numeric_starters = [str(n) + '.' for n in range(10)]
+    letter_starters = [char for char in string.ascii_uppercase[:6]]
+    letter_punct_starters = [char + '.' for char in string.ascii_uppercase[:6]]
+
+    mc_option_pattern = re.compile('([A-Z])(?:[a-z]?){1}\s')
+
+    complete_questions = defaultdict(dict)
+    instructions = defaultdict(dict)
+
+    q_series = question_group
+    vertically_ordered_question = sorted(q_series.values(),
+                                         key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
+    last_type_seen = [0]
+    misfits_created = False
+    current_question_id = [0]
+    ask_index = 0
+    unlabeled_choice_idx = 1
+    current_group_n = 0
+    instructions_idx = 0
+    for qv in vertically_ordered_question:
+        current_group_n = 'G' + str(qv['group_n'])
+        box_category = qv['category']
+        box_text = qv['contents'].replace('(', '').replace(')', '').replace('O', '')
+        del qv['source']
+        del qv['score']
+        del qv['v_dim']
+        del qv['category']
+
+        if box_text[:2] in letter_punct_starters:
+            instructions_idx += 1
+            make_instructions_entry(instructions, instructions_idx)
+
+        elif box_text[:2] in numeric_starters:
+            last_question_structural_id = box_text[:2]
+            ask_index += 1
+            make_question_entry(ask_index, complete_questions, qv, last_question_structural_id)
+
+        elif re.findall(mc_option_pattern, box_text) and re.findall(mc_option_pattern, box_text)[0] in letter_starters:
+            structural_label = re.findall(mc_option_pattern, box_text)[0]
+            make_possible_answer_entry(structural_label, complete_questions, qv)
+        elif box_text[-1] in letter_starters:
+            structural_label = box_text[-1]
+            make_possible_answer_entry(structural_label, complete_questions, qv)
+
+        elif current_question_id:
+            if last_type_seen[0] == 'possible_answer':
+                structural_label = 'Z' + str(unlabeled_choice_idx)
+                unlabeled_choice_idx += 1
+                make_possible_answer_entry(structural_label, complete_questions, qv)
+            elif last_type_seen[0] == 'question':
+                ask_index += 1
+                complete_questions[current_group_n][current_question_id[0]]['asks']['Qc' + str(ask_index)] = qv
+        else:
+            if not misfits_created:
+                complete_questions[current_group_n]['misfits'] = {
+                }
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+                misfits_created = True
+            elif misfits_created:
+                complete_questions[current_group_n]['misfits'][qv['box_id']] = {
+                    "category": box_category,
+                    "asks": {'M' + str(ask_index): qv},
+                    "answer_choices": {}
+                }
+            else:
+                pass
+                print 'miss'
+                print box_text
+                print
+
+    return complete_questions, instructions
+
+
 def parse_book(pages, file_path):
     for page in pages:
         page_file_path = file_path + page.replace('jpeg', 'json')
@@ -145,9 +739,27 @@ def parse_book(pages, file_path):
 
 
 def parse_page_questions(all_question_boxes):
+    all_questions = {}
+
     mc_questions = {qid: box for qid, box in all_question_boxes['question'].items() if
                     box['category'] == 'Multiple Choice'}
-    return mc_questions
+    sa_questions = {qid: box for qid, box in all_question_boxes['question'].items() if
+                    box['category'] == 'Short Answer'}
+    tf_questions = {qid: box for qid, box in all_question_boxes['question'].items() if
+                    box['category'] == 'True/False'}
+    fib_questions = {qid: box for qid, box in all_question_boxes['question'].items() if
+                    box['category'] == 'Fill-in-the-Blank'}
+
+    parsed_mc_qs, parsed_mc_instructions = parse_mc_questions(mc_questions)
+    parsed_sa_qs, parsed_sa_instructions = parse_sa_questions(sa_questions)
+    parsed_tf_qs, parsed_tf_instructions = parse_tf_questions(tf_questions)
+    # parsed_fib_qs, parsed_fib_instructions = parse_fib_questions(fib_questions)
+    all_questions.update(parsed_sa_qs)
+    all_questions.update(parsed_mc_qs)
+    all_questions.update(parsed_tf_qs)
+    # all_questions.update(parsed_fib_qs)
+
+    return all_questions
 
 
 
