@@ -116,10 +116,10 @@ def get_completed_hits(mturk_connection):
     return reviewable_hits
 
 
-def get_assignments(mturk_connection, reviewable_hits):
+def get_assignments(mturk_connection, reviewable_hits, status=None):
     assignments = defaultdict(list)
     for hit in reviewable_hits:
-        assignment = mturk_connection.get_assignments(hit.HITId)
+        assignment = mturk_connection.get_assignments(hit.HITId, status=status)
         assignments[hit.HITId].extend(assignment)
     return assignments
 
@@ -252,29 +252,43 @@ def load_local_annotation(page_name, anno_dir):
 
 
 def process_annotation_results(anno_page_name, boxes, unannotated_page, annotations_folder, page_schema):
+    question_cats = ['Multiple Choice',
+                     'Fill-in-the-Blank',
+                     'Short Answer',
+                     'Discussion']
+
     def update_box(result_row):
         box_id = result_row['box_id']
         category = result_row['category']
+        # group_n = result_row['group_n'] # this change is for the simpler question annotation task
+        group_n = 0
         try:
             if box_id[0] == 'Q':
                 annotation_type = 'question'
-                group_n = result_row['group_n']
                 unannotated_page[annotation_type][box_id]['category'] = category
                 unannotated_page[annotation_type][box_id]['group_n'] = group_n
-            else:
-                annotation_type = 'text'
-                unannotated_page[annotation_type][box_id]['category'] = category
-        except KeyError:
-            if box_id[0] == 'T':
-                annotation_type = 'question'
-                group_n = result_row['group_n']
-                unannotated_page[annotation_type][box_id.replace('T', 'Q')]['category'] = category
-                unannotated_page[annotation_type][box_id.replace('T', 'Q')]['group_n'] = group_n
-            elif box_id[0] == 'Q':
-                annotation_type = 'text'
-                group_n = result_row['group_n']
-                unannotated_page[annotation_type][box_id.replace('Q', 'T')]['category'] = category
-                unannotated_page[annotation_type][box_id.replace('Q', 'T')]['group_n'] = group_n
+            elif category in question_cats:
+                old_annotation_type = 'text'
+                new_annotation_type = 'question'
+                new_id = box_id.replace('T', 'Q')
+                unannotated_page[new_annotation_type][new_id] = unannotated_page[old_annotation_type][box_id]
+                unannotated_page[new_annotation_type][new_id]['category'] = category
+                unannotated_page[new_annotation_type][new_id]['group_n'] = group_n
+                unannotated_page[new_annotation_type][new_id]['box_id'] = new_id
+                # print unannotated_page[old_annotation_type][box_id]
+                del unannotated_page[old_annotation_type][box_id]
+        except KeyError as e:
+            print e
+            # if box_id[0] == 'T':
+            #     annotation_type = 'question'
+            #     group_n = result_row['group_n']
+            #     unannotated_page[annotation_type][box_id.replace('T', 'Q')]['category'] = category
+            #     unannotated_page[annotation_type][box_id.replace('T', 'Q')]['group_n'] = group_n
+            # elif box_id[0] == 'Q':
+            #     annotation_type = 'text'
+            #     group_n = result_row['group_n']
+            #     unannotated_page[annotation_type][box_id.replace('Q', 'T')]['category'] = category
+            #     unannotated_page[annotation_type][box_id.replace('Q', 'T')]['group_n'] = group_n
     boxes.apply(update_box, axis=1)
     # validator = jsonschema.Draft4Validator(page_schema)
 #     validator.validate(json.loads(json.dumps(unannotated_page)))
