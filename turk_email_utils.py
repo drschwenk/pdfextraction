@@ -72,9 +72,14 @@ def get_latest_worker_communication():
     workers = capture_worker_ids(latest_email)
     return workers
 
-if __name__ == "__main__":
-    emails_to_pickle = get_latest_worker_communication()
-    with open('latest_emails.pkl', 'w') as f:
+
+def pickle_emails(emails_to_pickle, file_path):
+    with open(file_path, 'w') as f:
         pickle.dump(emails_to_pickle, f)
-    print('writing latest_emails.pkl')
+    print('writing latest emails to pickle')
+
+if __name__ == "__main__":
+    emails_from_workers = get_latest_worker_communication()
+    file_path = 'latest_emails.pkl'
+    pickle_emails(emails_from_workers, file_path)
 

@@ -246,8 +246,12 @@ def form_annotation_url(page_name, anno_dir):
 
 def load_local_annotation(page_name, anno_dir):
     file_path = base_path + anno_dir + page_name.replace('jpeg', 'json')
-    with open(file_path, 'r') as f:
-        local_annotations = json.load(f)
+    try:
+        with open(file_path, 'r') as f:
+            local_annotations = json.load(f)
+    except IOError as e:
+        print e
+        local_annotations = None
     return local_annotations
 
 
@@ -300,7 +304,8 @@ def process_annotation_results(anno_page_name, boxes, unannotated_page, annotati
 
 def write_consensus_results(page_name, boxes, local_result_path, anno_dir):
     unaltered_annotations = load_local_annotation(page_name, anno_dir)
-    process_annotation_results(page_name, boxes, unaltered_annotations, local_result_path, page_schema)
+    if unaltered_annotations:
+        process_annotation_results(page_name, boxes, unaltered_annotations, local_result_path, page_schema)
 
 
 def write_results_df(aggregate_results_df, anno_dir, local_result_dir='newly-labeled-annotations/'):
