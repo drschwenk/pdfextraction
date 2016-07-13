@@ -238,9 +238,11 @@ def merge_boxes(detections, merge_params, book_name, page_n, merge_pass):
         possible_cats = [box['category'] for box in g]
         return sorted(possible_cats)[0]
 
-    def merge_box_values(box_group, book_name, page_n):
-        # sorted_g = sorted(sorted_g, key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
-        sorted_g = fuzzy_sort(box_group, 5)
+    def merge_box_values(box_group, book_name, page_n, pass_type='vertical'):
+
+        sorted_vertical = fuzzy_sort(box_group, 5)
+        sorted_g = sorted(sorted_vertical, key=lambda x: (x['rectangle'][0][0], x['rectangle'][1][0]))
+
         min_x = min(map(lambda x: start_x(x), sorted_g))
         max_x = max(map(lambda x: end_x(x), sorted_g))
         min_y = min(map(lambda x: start_y(x), sorted_g))
@@ -301,7 +303,6 @@ def merge_boxes(detections, merge_params, book_name, page_n, merge_pass):
 
     def merge_final_pass(detected_boxes, merge_p):
         rectangle_groups = []
-        # for name, current_d in detected_boxes.items():
         for current_d in detected_boxes:
             found_group = False
             for g in rectangle_groups:

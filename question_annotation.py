@@ -7,6 +7,7 @@ def make_annotation_w_questions(original_annotation, book_name, page_n):
     text_boxes = original_annotation['text']
     annotation = defaultdict(defaultdict)
     for box_id, box in text_boxes.items():
+
         category = box['category']
         try:
             if category == 'Question':
@@ -47,7 +48,8 @@ def make_annotation_w_questions(original_annotation, book_name, page_n):
                         ]
                     }
                 }
-        except KeyError:
+        except KeyError as e:
+            print e
             annotation['text'] = {}
 
     annotation['figure'] = {}
@@ -65,7 +67,6 @@ def amend_single_book(book_name, (start_n, stop_n), destination_path, base_path)
                 base_annotation = json.load(f)
 
             full_annotation = make_annotation_w_questions(base_annotation, book_name, page_n)
-
             with open(new_file_path, 'w') as f:
                 json.dump(full_annotation, f)
         except IOError as e:

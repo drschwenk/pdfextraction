@@ -47,6 +47,11 @@ def transmit_labels(unmerged_annotations, merged_annotations, overlap_tol_fract)
     for box_name, box_val in merged_annotations['text'].items():
         atomic_boxes = find_constituent_boxes(unmerged_annotations, box_val, overlap_tol_fract, box_type='text')
         if atomic_boxes:
+            # print 'box val'
+            # print box_val
+            # print 'ab'
+            # print atomic_boxes
+            # print
             new_annotations.extend(atomic_boxes)
     sorted_boxes = sorted(new_annotations, key=lambda x: x['rectangle'][0][1])
     unmerged_text_named = {'T' + str(i + 1): sorted_boxes[i] for i in range(len(sorted_boxes))}
@@ -57,6 +62,9 @@ def transmit_labels(unmerged_annotations, merged_annotations, overlap_tol_fract)
 
 def transmit_question_labels(unmerged_annotations, merged_annotations, overlap_tol_fract):
     new_annotations = []
+    if 'question' not in merged_annotations.keys():
+        print 'no con'
+        return None
     for box_name, box_val in merged_annotations['question'].items():
         atomic_boxes = find_constituent_boxes(unmerged_annotations, box_val, overlap_tol_fract, 'question')
         if atomic_boxes:
