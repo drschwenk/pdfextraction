@@ -3,6 +3,7 @@ from collections import OrderedDict
 from collections import defaultdict
 from copy import deepcopy
 
+
 class Detection:
 
     def __init__(self, start_x, start_y, end_x, end_y, value, score, v_dim):
@@ -107,7 +108,6 @@ def horizontal_overlap2(this_box, other_box, merge_p):
     overlap = max(0, min(ordered_boxes[0][1], ordered_boxes[1][1]) - max(ordered_boxes[0][0], ordered_boxes[1][0]))
     comp_box_width = max(width(this_box), width(other_box))
     return (overlap / float(comp_box_width)) > merge_p['near_overlap_x']
-
 
 
 def vertical_overlap(this_box, other_box, merge_p):
@@ -230,7 +230,7 @@ def fuzzy_sort(box_group, fuzzy_tolerance):
     return fuzzy_sorted_group
 
 
-def merge_boxes(detections, merge_params, book_name, page_n):
+def merge_boxes(detections, merge_params, book_name, page_n, merge_pass):
     int_keys = {int(k[1:]): v for k, v in sorted(detections.items(), key=lambda x: x[1]['rectangle'][0][1])}
     sorted_detections = OrderedDict(sorted(int_keys.items()))
 
@@ -324,25 +324,38 @@ def merge_boxes(detections, merge_params, book_name, page_n):
 
     horizontal_pass_dets = merge_horizontal_pass(sorted_detections, merge_params)
     overlap_pass_dets = merge_final_pass(horizontal_pass_dets, merge_params)
-    overlap_pass_dets2 = merge_final_pass(overlap_pass_dets, merge_params)
-    # vertical_pass_combined = merge_vertical_pass(overlap_pass_dets, merge_params)
-    return overlap_pass_dets2
-    # return vertical_pass_combined
+    if merge_pass == 2:
+        second_overlap_pass_dets = merge_final_pass(overlap_pass_dets, merge_params)
+        return second_overlap_pass_dets
+    elif merge_pass == 1:
+        vertical_pass_combined = merge_vertical_pass(overlap_pass_dets, merge_params)
+        return vertical_pass_combined
+    else:
+        return None
 
 
-def merge_single_page(file_path, merge_params, book_name, page_n):
+def merge_single_page(file_path, merge_params, book_name, page_n, merge_pass):
     with open(file_path, 'r') as f:
         annotations = json.load(f)
-    merged_annotation = merge_boxes(annotations['text'], merge_params, book_name, page_n)
+    merged_annotation = merge_boxes(annotations['text'], merge_params, book_name, page_n, merge_pass)
     return merged_annotation
 
 
-def merge_single_book(book_name, (start_n, stop_n), destination_path, base_path, merge_params):
-    # base_path = './ai2-vision-turk-data/textbook-annotation-test/annotations_ws/'
+def merge_single_book(book_name, (start_n, stop_n), destination_path, base_path, merge_params, merge_pass=1):
+    """
+    Merges the text boxes for a single book based on criteria specified by in merge_params and writes them to disk.
+    :param book_name: textbook to process
+    :param page range tuple
+    :param destination_path: new merged annotation destination directory
+    :param base_path: base turk data path
+    :param merge_params: parameters used when assessing two boxes to potentially merge
+    :param merge_pass: specifies whether this is a first merging or second (remerging) of the text
+    :return: None
+    """
     for page_n in range(start_n, stop_n):
         try:
             file_path = base_path + book_name.replace('.pdf', '') + '_' + str(page_n) + '.json'
-            merged_text_anno = merge_single_page(file_path, merge_params, book_name, page_n)
+            merged_text_anno = merge_single_page(file_path, merge_params, book_name, page_n, merge_pass)
             merged_text_named = {'T'+str(i + 1): merged_text_anno[i] for i in range(len(merged_text_anno))}
 
             for name, detection in merged_text_named.items():

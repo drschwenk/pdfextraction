@@ -140,13 +140,11 @@ def process_raw_hits(assignments_by_hit):
 
 
 def accept_hits(mturk_connection, assignments_to_approve):
-    for hit_id, hit_assignments in assignments_to_approve.items():
-        for assignment in hit_assignments:
-            if assignment.AssignmentStatus == 'Submitted':
-                mturk_connection.approve_assignment(assignment.AssignmentId)
-            else:
-                print assignment.AssignmentStatus
-        # mturk_connection.disable_hit(hit_id)
+    for assignment in assignments_to_approve:
+        if assignment.AssignmentStatus == 'Submitted':
+            mturk_connection.approve_assignment(assignment.AssignmentId)
+        else:
+            print assignment.AssignmentStatus
 
 
 def match_workers_assignments(worker_list, worker_result_df):

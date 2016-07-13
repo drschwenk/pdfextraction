@@ -5,6 +5,7 @@ import os
 from binascii import b2a_hex
 import PIL.Image as Image
 import io
+import glob
 
 from collections import OrderedDict
 from collections import defaultdict
@@ -18,6 +19,7 @@ from pdfminer.layout import LAParams
 from pdfminer.converter import PDFPageAggregator
 
 from annotation_schema import page_schema
+from amt_boto_modules import load_local_annotation
 
 
 def determine_image_type (stream_first_4_bytes):
@@ -183,6 +185,33 @@ def process_book(pdf_file, page_range, line_overlap,
                 interpreter.process_page(page)
                 layout = device.get_result()
                 write_image_file(layout, page_n, book_name, 'smaller_page_images', 0.66)
+
+
+def add_anno_img_dim(img_dir, source_annotation_folder, dest_annotation_folder):
+    """
+    Adds a field to the box annotations for the vertical dimension of the page image
+    :param img_dir: dir to read images from and set dim
+    :param source_annotation_folder dir to read source annotations from
+    :param dest_annotation_folder: destination for the new annotation files
+    :return: None
+    """
+    for img in glob.glob(img_dir + '/Read*'):
+        img_name = img.rsplit('/')[-1]
+        anno_file_name = img_name.replace('jpeg', 'json')
+        try:
+            existing_annotations = load_local_annotation(img_name, source_annotation_folder)
+            with open(img) as f:
+                v_dim = record_image_size(f.read())[1]
+            try:
+                for box_name, box in existing_annotations['text'].items():
+                    box['v_dim'] = v_dim
+            except KeyError:
+                print img
+            file_path = dest_annotation_folder + anno_file_name
+            with open(file_path, 'wb') as f:
+                json.dump(existing_annotations, f)
+        except IOError as e:
+            print e
 
 
 def assemble_url(page_number, book_name, base_url):
