@@ -24,6 +24,8 @@ def make_box_row(row_dict, pos_idx):
     del new_row['rectangle']
     return new_row
 
+### Start old
+
 
 def write_predicted_groups(page_results, base_path, test_path):
     page = page_results[0]
@@ -394,6 +396,7 @@ def label_multi_choice_components(base_path, pages):
 #                 print
 #
 #     return complete_questions, instructions
+### End old
 
 
 def parse_tf_questions(question_group, first_pass=True):
@@ -804,11 +807,11 @@ def parse_page_questions(all_question_boxes):
 
     parsed_mc_qs, parsed_mc_instructions = parse_mc_questions(mc_questions)
     parsed_sa_qs, parsed_sa_instructions = parse_sa_questions(sa_questions)
-    parsed_tf_qs, parsed_tf_instructions = parse_tf_questions(tf_questions)
+    # parsed_tf_qs, parsed_tf_instructions = parse_tf_questions(tf_questions)
     # parsed_fib_qs, parsed_fib_instructions = parse_fib_questions(fib_questions)
     all_questions.update(parsed_sa_qs)
     all_questions.update(parsed_mc_qs)
-    all_questions.update(parsed_tf_qs)
+    # all_questions.update(parsed_tf_qs)
     # all_questions.update(parsed_fib_qs)
 
     return all_questions

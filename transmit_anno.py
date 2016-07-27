@@ -79,13 +79,13 @@ def transmit_question_labels(unmerged_annotations, merged_annotations, overlap_t
 def write_transmitted_annotations(unmerged_text_anno, new_file_path):
     full_anno = {"text": unmerged_text_anno, "figure": {}, "relationship": {}}
     with open(new_file_path, 'w') as f:
-        json.dump(full_anno, f)
+        json.dump(full_anno, f, indent=4, sort_keys=True)
 
 
 def write_transmitted_question_annotations(non_q_annotations, unmerged_text_anno, new_file_path):
     full_anno = {"question": unmerged_text_anno, "text": non_q_annotations['text'],"figure": {}, "relationship": {}}
     with open(new_file_path, 'w') as f:
-        json.dump(full_anno, f)
+        json.dump(full_anno, f, indent=4, sort_keys=True)
 
 
 def transmit_boxes_single_page(page_image, overlap_tol_fract,

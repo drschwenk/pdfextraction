@@ -38,7 +38,7 @@ class Detection:
 
     def to_JSON(self):
         return {
-            'rectangle':[{'x':self.start_x, 'y':self.start_y}, {'x':self.end_x, 'y':self.end_y}],
+            'rectangle': [{'x': self.start_x, 'y': self.start_y}, {'x': self.end_x, 'y': self.end_y}],
             'value': self.value,
             'v_dim': self.v_dim,
             'score': self.score}
@@ -230,6 +230,10 @@ def fuzzy_sort(box_group, fuzzy_tolerance):
     return fuzzy_sorted_group
 
 
+def check_for_ocr_dupes(detections):
+    pass
+
+
 def merge_boxes(detections, merge_params, book_name, page_n, merge_pass):
     int_keys = {int(k[1:]): v for k, v in sorted(detections.items(), key=lambda x: x[1]['rectangle'][0][1])}
     sorted_detections = OrderedDict(sorted(int_keys.items()))
@@ -239,18 +243,20 @@ def merge_boxes(detections, merge_params, book_name, page_n, merge_pass):
         return sorted(possible_cats)[0]
 
     def merge_box_values(box_group, book_name, page_n, pass_type='vertical'):
+        if pass_type == 'vertical':
+            # sorted_box_groups = fuzzy_sort(box_group, 100)
+            sorted_box_groups = sorted(box_group, key=lambda x: (x['rectangle'][0][1]))
+        else:
+            sorted_box_groups = sorted(box_group, key=lambda x: (x['rectangle'][0][0]))
 
-        sorted_vertical = fuzzy_sort(box_group, 5)
-        sorted_g = sorted(sorted_vertical, key=lambda x: (x['rectangle'][0][0], x['rectangle'][1][0]))
-
-        min_x = min(map(lambda x: start_x(x), sorted_g))
-        max_x = max(map(lambda x: end_x(x), sorted_g))
-        min_y = min(map(lambda x: start_y(x), sorted_g))
-        max_y = max(map(lambda x: end_y(x), sorted_g))
-        words = ' '.join(map(lambda x: get_value(x), sorted_g))
-        score = sum([get_score(x) for x in sorted_g]) / len(sorted_g)
-        v_dim = get_v_dim(sorted_g[0])
-        category = merge_categories(sorted_g)
+        min_x = min(map(lambda x: start_x(x), sorted_box_groups))
+        max_x = max(map(lambda x: end_x(x), sorted_box_groups))
+        min_y = min(map(lambda x: start_y(x), sorted_box_groups))
+        max_y = max(map(lambda x: end_y(x), sorted_box_groups))
+        words = ' '.join(map(lambda x: get_value(x), sorted_box_groups))
+        score = sum([get_score(x) for x in sorted_box_groups]) / len(sorted_box_groups)
+        v_dim = get_v_dim(sorted_box_groups[0])
+        category = merge_categories(sorted_box_groups)
         detection = Detection(min_x, min_y, max_x, max_y, words, score, v_dim)
         new_detection = make_annotation_json(detection.to_JSON(), book_name, page_n, category)
         return new_detection
@@ -294,10 +300,13 @@ def merge_boxes(detections, merge_params, book_name, page_n, merge_pass):
 
         new_detections = []
         for g in rectangle_groups:
+            # print [box['contents'] for box in g]
+            # print
+            # print
             if len(g) == 1:
                 new_detections.append(g[0])
             else:
-                new_detections.append(merge_box_values(g, book_name, page_n))
+                new_detections.append(merge_box_values(g, book_name, page_n, 'vertical'))
 
         return new_detections
 
@@ -326,8 +335,8 @@ def merge_boxes(detections, merge_params, book_name, page_n, merge_pass):
     horizontal_pass_dets = merge_horizontal_pass(sorted_detections, merge_params)
     overlap_pass_dets = merge_final_pass(horizontal_pass_dets, merge_params)
     if merge_pass == 2:
-        second_overlap_pass_dets = merge_final_pass(overlap_pass_dets, merge_params)
-        return second_overlap_pass_dets
+        # second_overlap_pass_dets = merge_final_pass(overlap_pass_dets, merge_params)
+        return overlap_pass_dets
     elif merge_pass == 1:
         vertical_pass_combined = merge_vertical_pass(overlap_pass_dets, merge_params)
         return vertical_pass_combined
@@ -366,7 +375,7 @@ def merge_single_book(book_name, (start_n, stop_n), destination_path, base_path,
             full_anno = {"text": merged_text_named, "figure": {}, "relationship": {}}
 
             with open(new_file_path, 'w') as f:
-                json.dump(full_anno, f)
+                json.dump(full_anno, f, indent=4, sort_keys=True)
         except IOError as e:
             print e
     return

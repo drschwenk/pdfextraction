@@ -296,7 +296,7 @@ def process_annotation_results(anno_page_name, boxes, unannotated_page, annotati
 #     validator.validate(json.loads(json.dumps(unannotated_page)))
     file_path = annotations_folder + anno_page_name.replace('jpeg', 'json').replace("\\", "")
     with open(file_path, 'wb') as f:
-        json.dump(unannotated_page, f)
+        json.dump(unannotated_page, f, indent=4, sort_keys=True)
     return
 
 
