@@ -196,7 +196,7 @@ def label_multi_choice_components(base_path, pages):
 #     def make_possible_answer_entry(structural_label, complete_questions, qv):
 #         last_type_seen[0] = 'possible_answer'
 #         choice_id = "answer_choice_" + structural_label
-#         complete_questions[current_group_n][current_question_id[0]]['answer_choices'][choice_id] = {
+#         complete_questions[current_group_n][current_question_number[0]]['answer_choices'][choice_id] = {
 #             "structural_label": structural_label,
 #             "possible_answer": qv
 #         }
@@ -204,9 +204,9 @@ def label_multi_choice_components(base_path, pages):
 #     def make_question_entry(ask_index, complete_questions, qv, structural_label):
 #         last_type_seen[0] = 'question'
 #         box_text = qv['contents']
-#         current_question_id[0] = 'full_Q_' + structural_label
-#         complete_questions[current_group_n][current_question_id[0]] = {
-#             "question_id": current_question_id[0],
+#         current_question_number[0] = 'full_Q_' + structural_label
+#         complete_questions[current_group_n][current_question_number[0]] = {
+#             "question_id": current_question_number[0],
 #             "category": box_category,
 #             "structural_id": structural_label,
 #             "asks": {'Qc' + str(ask_index): qv},
@@ -232,7 +232,7 @@ def label_multi_choice_components(base_path, pages):
 #                                          key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
 #     last_type_seen = [0]
 #     misfits_created = False
-#     current_question_id = [0]
+#     current_question_number = [0]
 #     ask_index = 0
 #     unlabeled_choice_idx = 1
 #     current_group_n = 0
@@ -262,14 +262,14 @@ def label_multi_choice_components(base_path, pages):
 #             structural_label = box_text[-1]
 #             make_possible_answer_entry(structural_label, complete_questions, qv)
 #
-#         elif current_question_id:
+#         elif current_question_number:
 #             if last_type_seen[0] == 'possible_answer':
 #                 structural_label = 'Z' + str(unlabeled_choice_idx)
 #                 unlabeled_choice_idx += 1
 #                 make_possible_answer_entry(structural_label, complete_questions, qv)
 #             elif last_type_seen[0] == 'question':
 #                 ask_index += 1
-#                 complete_questions[current_group_n][current_question_id[0]]['asks']['Qc' + str(ask_index)] = qv
+#                 complete_questions[current_group_n][current_question_number[0]]['asks']['Qc' + str(ask_index)] = qv
 #         else:
 #             if not misfits_created:
 #                 complete_questions[current_group_n]['misfits'] = {
@@ -300,7 +300,7 @@ def label_multi_choice_components(base_path, pages):
 #     def make_possible_answer_entry(structural_label, complete_questions, qv):
 #         last_type_seen[0] = 'possible_answer'
 #         choice_id = "answer_choice_" + structural_label
-#         complete_questions[current_group_n][current_question_id[0]]['answer_choices'][choice_id] = {
+#         complete_questions[current_group_n][current_question_number[0]]['answer_choices'][choice_id] = {
 #             "structural_label": structural_label,
 #             "possible_answer": qv
 #         }
@@ -308,9 +308,9 @@ def label_multi_choice_components(base_path, pages):
 #     def make_question_entry(ask_index, complete_questions, qv, structural_label):
 #         last_type_seen[0] = 'question'
 #         box_text = qv['contents']
-#         current_question_id[0] = 'full_Q_' + structural_label
-#         complete_questions[current_group_n][current_question_id[0]] = {
-#             "question_id": current_question_id[0],
+#         current_question_number[0] = 'full_Q_' + structural_label
+#         complete_questions[current_group_n][current_question_number[0]] = {
+#             "question_id": current_question_number[0],
 #             "category": box_category,
 #             "structural_id": structural_label,
 #             "asks": {'Qc' + str(ask_index): qv},
@@ -336,7 +336,7 @@ def label_multi_choice_components(base_path, pages):
 #                                          key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
 #     last_type_seen = [0]
 #     misfits_created = False
-#     current_question_id = [0]
+#     current_question_number = [0]
 #     ask_index = 0
 #     unlabeled_choice_idx = 1
 #     current_group_n = 0
@@ -366,14 +366,14 @@ def label_multi_choice_components(base_path, pages):
 #             structural_label = box_text[-1]
 #             make_possible_answer_entry(structural_label, complete_questions, qv)
 #
-#         elif current_question_id:
+#         elif current_question_number:
 #             if last_type_seen[0] == 'possible_answer':
 #                 structural_label = 'Z' + str(unlabeled_choice_idx)
 #                 unlabeled_choice_idx += 1
 #                 make_possible_answer_entry(structural_label, complete_questions, qv)
 #             elif last_type_seen[0] == 'question':
 #                 ask_index += 1
-#                 complete_questions[current_group_n][current_question_id[0]]['asks']['Qc' + str(ask_index)] = qv
+#                 complete_questions[current_group_n][current_question_number[0]]['asks']['Qc' + str(ask_index)] = qv
 #         else:
 #             if not misfits_created:
 #                 complete_questions[current_group_n]['misfits'] = {

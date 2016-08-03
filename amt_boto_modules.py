@@ -11,7 +11,7 @@ import boto.mturk.question as tq
 from boto.mturk.qualification import PercentAssignmentsApprovedRequirement, Qualifications, Requirement
 import requests
 
-from annotation_schema import page_schema
+# from annotation_schema import page_schema
 
 
 def load_book_info():
@@ -144,7 +144,7 @@ def accept_hits(mturk_connection, assignments_to_approve):
         if assignment.AssignmentStatus == 'Submitted':
             mturk_connection.approve_assignment(assignment.AssignmentId)
         else:
-            print assignment.AssignmentStatus
+            print(assignment.AssignmentStatus)
 
 
 def match_workers_assignments(worker_list, worker_result_df):
@@ -163,7 +163,7 @@ def reject_assignments(mturk_connection, workers_to_reject, worker_result_df):
         try:
             mturk_connection.reject_assignment(assignment_id, feedback_message)
         except boto.mturk.connection.MTurkRequestError:
-            print 'assignment ' + str(assignment_id) + ' already accepted or rejected'
+            print('assignment ' + str(assignment_id) + ' already accepted or rejected')
 
     return reject_count, worker_count
 
@@ -173,7 +173,7 @@ def ban_bad_workers(mturk_connection, worker_ids):
         reason_for_block = """
         Worker's submissions were largely incomplete.
         """
-        print 'blocking ' + str(worker)
+        print('blocking ' + str(worker))
         mturk_connection.block_worker(worker, reason_for_block)
 
 
@@ -248,7 +248,7 @@ def load_local_annotation(page_name, anno_dir):
         with open(file_path, 'r') as f:
             local_annotations = json.load(f)
     except IOError as e:
-        print e
+        print(e)
         local_annotations = None
     return local_annotations
 
@@ -280,7 +280,7 @@ def process_annotation_results(anno_page_name, boxes, unannotated_page, annotati
                 # print unannotated_page[old_annotation_type][box_id]
                 del unannotated_page[old_annotation_type][box_id]
         except KeyError as e:
-            print e
+            print(e)
             # if box_id[0] == 'T':
             #     annotation_type = 'question'
             #     group_n = result_row['group_n']
