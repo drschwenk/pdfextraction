@@ -1,7 +1,6 @@
 import json
 import string
 import re
-from collections import defaultdict
 from collections import OrderedDict
 from copy import deepcopy
 import functools
@@ -10,7 +9,7 @@ import pprint
 
 class QuestionTypeParser(object):
     def __init__(self, overlap_tol=None, blank_threshold=None):
-        self.numeric_starters = [str(n) + '.' for n in range(20)]
+        self.numeric_starters = [str(n) + '.' for n in range(50)]
         self.letter_starters = [char + '.' for char in string.ascii_uppercase[:6]]
         self.letter_starters += [char + '.' for char in string.ascii_lowercase[:6]]
         self.letter_dot_starters = [char + '.' for char in string.ascii_uppercase[:6]]
@@ -22,13 +21,13 @@ class QuestionTypeParser(object):
 
     def get_type_specific_parser(self, question_type):
         if question_type == 'Multiple Choice':
-            return MultipleChoiceParser()
+            return MultipleChoiceParser(self.overlap_tol, self.blank_thresh)
         elif question_type == 'Short Answer':
             return ShortAnswerParser()
         elif question_type == 'True/False':
             return TrueFalseParser(self.overlap_tol, self.blank_thresh)
-        elif question_type == 'Fill-In-the-Blank':
-            return FillInBlankParser()
+        elif question_type == 'Fill-in-the-Blank':
+            return FillInBlankParser(self.overlap_tol, self.blank_thresh)
 
     @classmethod
     def start_x(cls, box):
@@ -92,10 +91,15 @@ class QuestionTypeParser(object):
         combined_box = self.merge_boxes([last_val, box], category)
         _, starting_chars = self.check_starting_chars(combined_box['contents'])
         self.make_question_component(combined_box, ask_index, starting_chars)
-        # self.parsed_questions[last_key] = combined_box
 
     def detect_blank(self, current_box, parsed_questions):
-        last_box_seen = list(QuestionTypeParser.get_last_added(parsed_questions, 2).values())[0]
+
+        search_depth = 1
+        last_box_seen = {}
+        while 'rectangle' not in last_box_seen.keys() and search_depth < 5:
+            search_depth += 1
+            last_box_seen = list(QuestionTypeParser.get_last_added(parsed_questions, search_depth).values())[0]
+
         large_gap = (QuestionTypeParser.start_x(current_box) - QuestionTypeParser.end_x(
             last_box_seen)) > self.blank_thresh
         same_line = self.check_for_same_line(current_box, last_box_seen)
@@ -110,7 +114,9 @@ class QuestionTypeParser(object):
         return overlap / float(larger_box_width) > self.overlap_tol
 
     def make_instruction_component(self, inst_id, box):
-        self.parsed_questions['instructions'] = {'inst_line_' + str(inst_id): QuestionTypeParser.clean_box(box)},
+        if 'instructions' not in self.parsed_questions.keys():
+            self.parsed_questions['instructions'] = {}
+        self.parsed_questions['instructions']['inst_line_' + str(inst_id)] = QuestionTypeParser.clean_box(box),
 
     def make_question_component(self, box, ask_index, structural_id):
         box_category = box['category']
@@ -123,7 +129,7 @@ class QuestionTypeParser(object):
         for field in property_fields:
             self.parsed_questions[question_id][field[0]] = field[1]
 
-    def scan_over_boxes(self, ordered_boxes):
+    def make_robust_to_ocr_errors(self):
         pass
 
     def check_starting_chars(self, box_text):
@@ -140,8 +146,8 @@ class QuestionTypeParser(object):
 
 
 class MultipleChoiceParser(QuestionTypeParser):
-    def __init__(self):
-        super(MultipleChoiceParser, self).__init__()
+    def __init__(self, overlap_tol, blank_thresh):
+        super(MultipleChoiceParser, self).__init__(overlap_tol, blank_thresh)
         self.q_sub_n = 0
 
     @staticmethod
@@ -150,7 +156,7 @@ class MultipleChoiceParser(QuestionTypeParser):
         return box_text
 
     def make_answer_choice(self, box, structural_id):
-        choice_id = structural_id
+        choice_id = 'answer_choice ' + structural_id
         question_id = 'Q_' + str(self.current_question_number)
         if 'answer_choices' not in self.parsed_questions[question_id].keys():
             self.parsed_questions[question_id]['answer_choices'] = OrderedDict()
@@ -171,6 +177,8 @@ class MultipleChoiceParser(QuestionTypeParser):
                 self.q_sub_n += 1
                 self.current_question_number += 1
                 self.make_question_component(box, ask_index, starting_chars)
+            elif self.detect_blank(box, self.parsed_questions):
+                self.append_box_to_last_element(QuestionTypeParser.clean_box(box), ask_index, box['category'])
             elif start_type in ['letter dot start', 'letter start']:
                 self.make_answer_choice(box, starting_chars)
             elif start_type == 'letter start':
@@ -201,12 +209,8 @@ class TrueFalseParser(QuestionTypeParser):
 
 
 class FillInBlankParser(QuestionTypeParser):
-    def __init__(self):
-        super(self).__init__()
-
-    def __init__(self):
-        super(FillInBlankParser, self).__init__()
-
+    def __init__(self, overlap_tol, blank_threshold):
+        super(FillInBlankParser, self).__init__(overlap_tol, blank_threshold)
         self.q_sub_n = 0
 
     def scan_boxes(self, mc_boxes):
@@ -220,6 +224,8 @@ class FillInBlankParser(QuestionTypeParser):
                 self.q_sub_n += 1
                 self.current_question_number += 1
                 self.make_question_component(box, ask_index, starting_chars)
+            elif self.detect_blank(box, self.parsed_questions):
+                self.append_box_to_last_element(QuestionTypeParser.clean_box(box), ask_index, box['category'])
             elif start_type == 'letter start':
                 pass
 
@@ -302,13 +308,12 @@ class PageQuestionParser(object):
         return fuzzy_sorted_group
 
     @classmethod
-    def parse_page_questions(cls, all_page_boxes, overlap_tol, blank_threshold):
-        question_types = ['Multiple Choice', 'Short Answer', 'True/False', 'Fill-In-the-Blank']
-        # ordered_questions = sorted(all_page_boxes['question'].values(),
-        #                            key=lambda x: (x['rectangle'][0][1], x['rectangle'][0][0]))
-        ordered_questions = PageQuestionParser.fuzzy_sort(all_page_boxes, 10)
-        questions_by_type = {qt: [box for box in ordered_questions if box['category'] == qt] for qt in question_types[:3]}
-
+    def parse_page_questions(cls, all_page_boxes, overlap_tol, blank_threshold, fuzzy_factor):
+        question_types = ['Multiple Choice', 'Short Answer', 'True/False', 'Fill-in-the-Blank']
+        ordered_questions = PageQuestionParser.fuzzy_sort(all_page_boxes, fuzzy_factor)
+        # for q in ordered_questions:
+        #     print(q['contents'], q['rectangle'])
+        questions_by_type = {qt: [box for box in ordered_questions if box['category'] == qt] for qt in question_types}
         master_page_parser = QuestionTypeParser(overlap_tol, blank_threshold)
         for q_type, question_boxes in questions_by_type.items():
             type_specific_parser = master_page_parser.get_type_specific_parser(q_type)
