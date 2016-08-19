@@ -83,14 +83,12 @@ class QuestionTypeParser(object):
         return QuestionTypeParser.end_x(box) - QuestionTypeParser.start_x(box)
 
     @classmethod
-    def clean_box(cls, box):
-        if 'source' in box.keys():
+    def clean_box(cls, box, structural_id):
+        if 'color' in box.keys():
             box_copy = deepcopy(box)
-            del box_copy['source']
-            del box_copy['score']
-            del box_copy['v_dim']
-            del box_copy['category']
-            del box_copy['group_n']
+            del box_copy['color']
+            del box_copy['font_size']
+            box_copy['contents'] = box_copy['contents'].lower().strip().encode('ascii', 'ignore')
             return box_copy
         else:
             return box
@@ -107,6 +105,7 @@ class QuestionTypeParser(object):
         combined_words = self.blank_signifier.join(map(lambda x: x['contents'], sorted_box_groups))
         combined_rect = [min_x, min_y, max_x, max_y]
         new_box = {
+            'correct': sorted_box_groups[0]['correct'],
             'contents': combined_words,
             'rectangle': combined_rect}
         return new_box
@@ -154,8 +153,7 @@ class QuestionTypeParser(object):
         question_id = 'Q_' + str(self.current_question_number)
         self.parsed_questions[question_id] = OrderedDict()
         property_fields = [["question_id", question_id],
-                           ["structural_id", structural_id],
-                           ["asks", OrderedDict({'question_line_' + str(ask_index):  QuestionTypeParser.clean_box(box)})]]
+                           ["asks", OrderedDict({'question_line_' + str(ask_index):  QuestionTypeParser.clean_box(box, structural_id)})]]
         for field in property_fields:
             self.parsed_questions[question_id][field[0]] = field[1]
 
@@ -164,11 +162,7 @@ class QuestionTypeParser(object):
         question_id = 'Q_' + str(self.current_question_number)
         if 'answer_choices' not in self.parsed_questions[question_id].keys():
             self.parsed_questions[question_id]['answer_choices'] = OrderedDict()
-        self.parsed_questions[question_id]['answer_choices'][choice_id] = box
-            # {
-            # "structural_label": choice_id,
-            # "possible_answer": QuestionTypeParser.clean_box(box)
-        # }
+        self.parsed_questions[question_id]['answer_choices'][choice_id] = QuestionTypeParser.clean_box(box, structural_id)
         return
 
     def scan_boxes(self, mc_boxes):
@@ -189,8 +183,6 @@ class CK12QuizParser(object):
 
     def __init__(self):
         self.q_parser = None
-        # self.parsed_content = defaultdict(lambda: defaultdict(str))
-        # self.parsed_content = defaultdict(str)
         self.parsed_content = {
             'title': '',
             'question_components': []
@@ -244,7 +236,7 @@ class CK12QuizParser(object):
                         'rectangle': list(line.bbox.as_tuple()),
                         'font_size': list(line.char_fonts)[0].size,
                         'color': list(line.char_fonts)[0].color.as_tuple(),
-                        'answer': False
+                        'correct': False
                     }
                     line_props['rectangle'][1] += self.page_dim * page_n
                     line_props['rectangle'][3] += self.page_dim * page_n
@@ -255,7 +247,7 @@ class CK12QuizParser(object):
                         title_text += title_line_text
                     else:
                         if self.check_color(line_props) == 'red_answer':
-                            line_props['answer'] = True
+                            line_props['correct'] = True
                         self.parsed_content['question_components'].append(line_props)
         self.parsed_content['title'] += title_text.strip().encode('ascii', 'ignore')
 
@@ -263,7 +255,7 @@ class CK12QuizParser(object):
 def parse_pdf_collection(pdf_dir):
     quiz_content = {}
     # for pdf_file in glob.glob(pdf_dir + '/*'):
-    for pdf_file in glob.glob(pdf_dir + '/*')[0:1]:
+    for pdf_file in glob.glob(pdf_dir + '/*')[0:3]:
         quiz_parser = CK12QuizParser()
         parsed_quiz = quiz_parser.parse_pdf(pdf_file)
         quiz_content[parsed_quiz['title']] = parsed_quiz
