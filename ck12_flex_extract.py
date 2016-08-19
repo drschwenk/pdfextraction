@@ -57,6 +57,7 @@ class QuestionTypeParser(object):
         self.overlap_tol = overlap_tol
         self.blank_thresh = blank_threshold
         self.blank_signifier = ' '
+        self.last_added_depth = 3
 
     @classmethod
     def start_x(cls, box):
@@ -88,14 +89,15 @@ class QuestionTypeParser(object):
             box_copy = deepcopy(box)
             del box_copy['color']
             del box_copy['font_size']
-            box_copy['contents'] = box_copy['contents'].lower().strip().encode('ascii', 'ignore')
             return box_copy
         else:
             return box
 
-    @classmethod
-    def get_last_added(cls, ordered_prop_dict, depth):
-        return functools.reduce(lambda x, _: list(x.items())[-1][1], range(depth), ordered_prop_dict)
+    def get_last_added(self, ordered_prop_dict):
+        return functools.reduce(lambda x, _: list(x.items())[-1][1], range(self.last_added_depth), ordered_prop_dict)
+
+    def get_last_added_key(self, ordered_prop_dict, last_depth):
+        return functools.reduce(lambda x, _: list(x.items())[-1][0], range(last_depth), ordered_prop_dict)
 
     def merge_boxes(self, sorted_box_groups):
         min_x = min(map(lambda x: QuestionTypeParser.start_x(x), sorted_box_groups))
@@ -111,7 +113,7 @@ class QuestionTypeParser(object):
         return new_box
 
     def append_box_to_last_element(self, box, ask_index):
-        last_val = QuestionTypeParser.get_last_added(self.parsed_questions, 3)
+        last_val = self.get_last_added(self.parsed_questions)
         combined_box = self.merge_boxes([last_val, box])
         start_type, starting_chars = self.check_starting_chars(combined_box['contents'])
         if start_type == 'numeric start':
@@ -147,7 +149,7 @@ class QuestionTypeParser(object):
         elif box_text[:2] in self.letter_starters:
             return 'letter start', box_text[:2]
         else:
-            return None, None
+            return False, None
 
     def make_question_component(self, box, ask_index, structural_id):
         question_id = 'Q_' + str(self.current_question_number)
@@ -156,6 +158,7 @@ class QuestionTypeParser(object):
                            ["asks", OrderedDict({'question_line_' + str(ask_index):  QuestionTypeParser.clean_box(box, structural_id)})]]
         for field in property_fields:
             self.parsed_questions[question_id][field[0]] = field[1]
+        self.last_added_depth = 3
 
     def make_answer_choice(self, box, structural_id):
         choice_id = 'answer_choice ' + structural_id
@@ -163,20 +166,33 @@ class QuestionTypeParser(object):
         if 'answer_choices' not in self.parsed_questions[question_id].keys():
             self.parsed_questions[question_id]['answer_choices'] = OrderedDict()
         self.parsed_questions[question_id]['answer_choices'][choice_id] = QuestionTypeParser.clean_box(box, structural_id)
-        return
+        self.last_added_depth = 3
 
-    def scan_boxes(self, mc_boxes):
+    def make_correct_answer(self, box):
+        question_id = 'Q_' + str(self.current_question_number)
+        if 'correct_answer' not in self.parsed_questions[question_id].keys():
+            self.parsed_questions[question_id]['correct_answer'] = {}
+            self.parsed_questions[question_id]['correct_answer']['contents'] = box['contents']
+        else:
+            self.parsed_questions[question_id]['correct_answer']['contents'] += box['contents']
+        self.last_added_depth = 2
+
+    def scan_boxes(self, text_boxes):
         ask_index = 0
-        for idx, box in enumerate(mc_boxes):
+        for idx, box in enumerate(text_boxes):
             box_text = box['contents']
             start_type, starting_chars = self.check_starting_chars(box_text)
             if start_type == 'numeric start':
                 self.current_question_number += 1
                 self.make_question_component(box, ask_index, starting_chars)
-            elif start_type in ['letter dot start', 'letter start']:
+            if start_type in ['letter dot start', 'letter start']:
                 self.make_answer_choice(box, starting_chars)
-            elif len(box_text) > 2:
+            if len(box_text) > 2 and not box['correct'] and not start_type:
                 self.append_box_to_last_element(box, ask_index)
+            if box['correct']:
+                last_start_type, _ = self.check_starting_chars(self.get_last_added(self.parsed_questions)['contents'])
+                if last_start_type != 'letter start':
+                    self.make_correct_answer(box)
 
 
 class CK12QuizParser(object):
@@ -219,7 +235,6 @@ class CK12QuizParser(object):
         for page in doc:
             self.extract_page_text(page, page_n)
             page_n += 1
-
         sorted_boxes = sorted(self.parsed_content['question_components'],
                               key=lambda x: (x['rectangle'][1], x['rectangle'][0]))
         self.q_parser.scan_boxes(sorted_boxes)
@@ -232,16 +247,17 @@ class CK12QuizParser(object):
             for block in flow:
                 for line in block:
                     line_props = {
-                        'contents': line.text,
+                        'contents': line.text.lower().strip().replace('\t', ' ').encode('ascii', 'ignore'),
                         'rectangle': list(line.bbox.as_tuple()),
                         'font_size': list(line.char_fonts)[0].size,
-                        'color': list(line.char_fonts)[0].color.as_tuple(),
+                        'color': max(list(line.char_fonts)[0].color.as_tuple(), list(line.char_fonts)[-1].color.as_tuple()),
                         'correct': False
                     }
                     line_props['rectangle'][1] += self.page_dim * page_n
                     line_props['rectangle'][3] += self.page_dim * page_n
                     if self.check_color(line_props) == 'title_color':
-                        title_line_text = line_props['contents'].lower()
+                        title_line_text = line_props['contents']
+
                         for sw in self.stop_words['titles']:
                             title_line_text = title_line_text.replace(sw, '')
                         title_text += title_line_text
@@ -255,7 +271,7 @@ class CK12QuizParser(object):
 def parse_pdf_collection(pdf_dir):
     quiz_content = {}
     # for pdf_file in glob.glob(pdf_dir + '/*'):
-    for pdf_file in glob.glob(pdf_dir + '/*')[0:3]:
+    for pdf_file in glob.glob(pdf_dir + '/*')[0:1]:
         quiz_parser = CK12QuizParser()
         parsed_quiz = quiz_parser.parse_pdf(pdf_file)
         quiz_content[parsed_quiz['title']] = parsed_quiz
