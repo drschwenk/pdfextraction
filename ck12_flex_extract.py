@@ -96,9 +96,6 @@ class QuestionTypeParser(object):
     def get_last_added(self, ordered_prop_dict):
         return functools.reduce(lambda x, _: list(x.items())[-1][1], range(self.last_added_depth), ordered_prop_dict)
 
-    def get_last_added_key(self, ordered_prop_dict, last_depth):
-        return functools.reduce(lambda x, _: list(x.items())[-1][0], range(last_depth), ordered_prop_dict)
-
     def merge_boxes(self, sorted_box_groups):
         min_x = min(map(lambda x: QuestionTypeParser.start_x(x), sorted_box_groups))
         max_x = max(map(lambda x: QuestionTypeParser.end_x(x), sorted_box_groups))
@@ -155,10 +152,10 @@ class QuestionTypeParser(object):
         question_id = 'Q_' + str(self.current_question_number)
         self.parsed_questions[question_id] = OrderedDict()
         property_fields = [["question_id", question_id],
-                           ["asks", OrderedDict({'question_line_' + str(ask_index):  QuestionTypeParser.clean_box(box, structural_id)})]]
+                           ["ask",   QuestionTypeParser.clean_box(box, structural_id)]]
         for field in property_fields:
             self.parsed_questions[question_id][field[0]] = field[1]
-        self.last_added_depth = 3
+        self.last_added_depth = 2
 
     def make_answer_choice(self, box, structural_id):
         choice_id = 'answer_choice ' + structural_id
@@ -270,11 +267,14 @@ class CK12QuizParser(object):
 
 def parse_pdf_collection(pdf_dir):
     quiz_content = {}
-    # for pdf_file in glob.glob(pdf_dir + '/*'):
-    for pdf_file in glob.glob(pdf_dir + '/*')[0:1]:
+    for pdf_file in glob.glob(pdf_dir + '/*'):
+    # for pdf_file in glob.glob(pdf_dir + '/*')[0:200]:
         quiz_parser = CK12QuizParser()
-        parsed_quiz = quiz_parser.parse_pdf(pdf_file)
-        quiz_content[parsed_quiz['title']] = parsed_quiz
+        try:
+            parsed_quiz = quiz_parser.parse_pdf(pdf_file)
+            quiz_content[parsed_quiz['title']] = parsed_quiz
+        except (IndexError, KeyError) as e:
+            print pdf_file
     return quiz_content
 
 
