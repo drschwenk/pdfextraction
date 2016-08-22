@@ -91,16 +91,6 @@ class QuestionTypeParser(object):
         else:
             return box
 
-    @classmethod
-    def clean_box_final(cls, box, structural_id):
-        if 'color' in box.keys():
-            box_copy = deepcopy(box)
-            del box_copy['color']
-            del box_copy['font_size']
-            return box_copy
-        else:
-            return box
-
     def get_last_added(self, ordered_prop_dict):
         return functools.reduce(lambda x, _: list(x.items())[-1][1], range(self.last_added_depth), ordered_prop_dict)
 
@@ -109,20 +99,23 @@ class QuestionTypeParser(object):
         max_x = max(map(lambda x: QuestionTypeParser.end_x(x), sorted_box_groups))
         min_y = min(map(lambda x: QuestionTypeParser.start_y(x), sorted_box_groups))
         max_y = max(map(lambda x: QuestionTypeParser.end_y(x), sorted_box_groups))
-        combined_words = self.blank_signifier.join(map(lambda x: x['contents'], sorted_box_groups))
+        combined_raw_words = self.blank_signifier.join(map(lambda x: x['raw_content'], sorted_box_groups))
+        combined_words = self.blank_signifier.join(map(lambda x: x['processed_content'], sorted_box_groups))
         combined_rect = [min_x, min_y, max_x, max_y]
         new_box = {
             'correct': sorted_box_groups[0]['correct'],
-            'contents': combined_words,
+            'raw_content': combined_raw_words,
+            'processed_content': combined_words,
+            'structural_id': sorted_box_groups[0]['structural_id'],
             'rectangle': combined_rect}
         return new_box
 
-    def append_box_to_last_element(self, box, ask_index):
+    def append_box_to_last_element(self, box):
         last_val = self.get_last_added(self.parsed_questions)
         combined_box = self.merge_boxes([last_val, box])
-        start_type, starting_chars = self.check_starting_chars(combined_box['contents'])
+        start_type, starting_chars = self.check_starting_chars(combined_box['processed_content'])
         if start_type == 'numeric start':
-            self.make_question_component(combined_box, ask_index, starting_chars)
+            self.make_question_component(combined_box, starting_chars)
         elif start_type in ['letter dot start', 'letter start']:
             self.make_answer_choice(combined_box, starting_chars)
 
@@ -156,9 +149,10 @@ class QuestionTypeParser(object):
         else:
             return False, None
 
-    def make_question_component(self, box, ask_index, structural_id):
+    def make_question_component(self, box, structural_id):
         question_id = 'Q_' + str(self.current_question_number)
         self.parsed_questions[question_id] = OrderedDict()
+        # order of property fields is important for get last values
         property_fields = [["question_id", question_id],
                            ["ask",   QuestionTypeParser.clean_box(box)]]
         for field in property_fields:
@@ -173,31 +167,32 @@ class QuestionTypeParser(object):
         self.parsed_questions[question_id]['answer_choices'][choice_id] = QuestionTypeParser.clean_box(box)
         self.last_added_depth = 3
 
-    def make_correct_answer(self, box):
+    def make_correct_answer(self, box, structural_id):
         question_id = 'Q_' + str(self.current_question_number)
         if 'correct_answer' not in self.parsed_questions[question_id].keys():
             self.parsed_questions[question_id]['correct_answer'] = {}
-            self.parsed_questions[question_id]['correct_answer']['contents'] = box['contents']
+            self.parsed_questions[question_id]['correct_answer']['structural_id'] = structural_id
+            self.parsed_questions[question_id]['correct_answer']['processed_content'] = box['processed_content']
         else:
-            self.parsed_questions[question_id]['correct_answer']['contents'] += box['contents']
+            self.parsed_questions[question_id]['correct_answer']['processed_content'] += '' + box['processed_content']
         self.last_added_depth = 2
 
     def scan_boxes(self, text_boxes):
-        ask_index = 0
         for idx, box in enumerate(text_boxes):
-            box_text = box['contents']
+            box_text = box['processed_content']
             start_type, starting_chars = self.check_starting_chars(box_text)
+            box['structural_id'] = starting_chars
             if start_type == 'numeric start':
                 self.current_question_number += 1
-                self.make_question_component(box, ask_index, starting_chars)
+                self.make_question_component(box, starting_chars)
             if start_type in ['letter dot start', 'letter start']:
                 self.make_answer_choice(box, starting_chars)
             if len(box_text) > 2 and not box['correct'] and not start_type:
-                self.append_box_to_last_element(box, ask_index)
+                self.append_box_to_last_element(box)
             if box['correct']:
-                last_start_type, _ = self.check_starting_chars(self.get_last_added(self.parsed_questions)['contents'])
-                if last_start_type != 'letter start':
-                    self.make_correct_answer(box)
+                last_start_type, last_starter = self.check_starting_chars(self.get_last_added(self.parsed_questions)['processed_content'])
+                if last_start_type != 'letter start' or last_starter == 'd)':
+                    self.make_correct_answer(box, starting_chars)
 
 
 class CK12QuizParser(object):
@@ -249,7 +244,8 @@ class CK12QuizParser(object):
             for block in flow:
                 for line in block:
                     line_props = {
-                        'contents': line.text.lower().strip().replace('\t', ' ').encode('ascii', 'ignore'),
+                        'raw_content': line.text,
+                        'processed_content': line.text.lower().strip().replace('\t', ' ').encode('ascii', 'ignore'),
                         'rectangle': list(line.bbox.as_tuple()),
                         'font_size': list(line.char_fonts)[0].size,
                         'color': max(list(line.char_fonts)[0].color.as_tuple(), list(line.char_fonts)[-1].color.as_tuple()),
@@ -258,7 +254,7 @@ class CK12QuizParser(object):
                     line_props['rectangle'][1] += self.page_dim * page_n
                     line_props['rectangle'][3] += self.page_dim * page_n
                     if self.check_color(line_props) == 'title_color':
-                        title_line_text = line_props['contents']
+                        title_line_text = line_props['processed_content']
 
                         for sw in self.stop_words['titles']:
                             title_line_text = title_line_text.replace(sw, '')
@@ -271,35 +267,63 @@ class CK12QuizParser(object):
 
     def classify_question(self, parsed_question):
         q_type = 'None'
-        if 'true or false' in parsed_question['ask']['contents']:
+        if 'true or false' in parsed_question['ask']['processed_content']:
             q_type = 'True/False'
-        elif parsed_question['ask'] and 'answer_choices' not in parsed_question.keys():
+        if '____' in parsed_question['ask']['processed_content'] and q_type == 'None':
+            q_type = 'Fill-in-the-Blank'
+        if parsed_question['ask'] and 'answer_choices' not in parsed_question.keys() and q_type == 'None':
             q_type = 'Short Answer'
-        elif len(parsed_question['answer_choices']) == 4:
+        if 'answer_choices' in parsed_question.keys() and len(parsed_question['answer_choices']) == 4:
             q_type = 'Multiple Choice'
-        elif len(parsed_question['answer_choices']) == 2:
+        if 'answer_choices' in parsed_question.keys() and len(parsed_question['answer_choices']) == 2:
             q_type = 'True/False'
         return q_type
+
+    @classmethod
+    def remove_structural_ids(cls, question):
+        q_components = [question['ask']] + [question['correct_answer']]
+        pck = 'processed_content'
+        sik = 'structural_id'
+        for component in q_components:
+            if component and component != '_MISSING_' and component[sik]:
+                component[pck] = component[pck].replace(component[sik], '').strip()
+                if 'rectangle' in component.keys():
+                    del component['rectangle']
+                    del component['correct']
+        if 'answer_choices' in question.keys():
+            for component in question['answer_choices'].values():
+                component[pck] = component[pck].replace(component[sik], '').strip()
+                if 'rectangle' in component.keys():
+                    del component['rectangle']
+                    del component['correct']
 
     def refine_parsed_page(self, parsed_page):
         for qid, question in parsed_page['question_components'].items():
             question['question_type'] = self.classify_question(question)
-            del question['ask']['correct']
-            del question['ask']['rectangle']
-            if 'correct_answer' not in question.keys() and question['question_type'] != 'Short Answer':
+
+            if 'correct_answer' not in question.keys() and question['question_type'] in 'Multiple Choice':
+                question['correct_answer'] = {}
                 for ac_id, answer_choice in question['answer_choices'].items():
                     if answer_choice['correct']:
-                        question['correct_answer'] = answer_choice['contents']
-                    del answer_choice['correct']
-                    del answer_choice['rectangle']
-            elif 'correct_answer' not in question.keys():
+                        question['correct_answer']['structural_id'] = answer_choice['structural_id']
+                        question['correct_answer']['processed_content'] = answer_choice['processed_content']
+            if 'correct_answer' not in question.keys():
                 question['correct_answer'] = '_MISSING_'
+            if 'answer_choices' not in question.keys() and question['question_type'] == 'True/False':
+                question['answer_choices'] = {
+                    'answer_choice a': {
+                        'processed_content': 'true',
+                        'structural_id': 'a)'},
+                    'answer_choice b': {
+                        'processed_content': 'false',
+                        'structural_id': 'b)'}
+                }
+            CK12QuizParser.remove_structural_ids(question)
 
 
 def parse_pdf_collection(pdf_dir):
     quiz_content = {}
     for pdf_file in glob.glob(pdf_dir + '/*'):
-    # for pdf_file in glob.glob(pdf_dir + '/*')[0:200]:
         quiz_parser = CK12QuizParser()
         try:
             parsed_quiz = quiz_parser.parse_pdf(pdf_file)
@@ -313,3 +337,17 @@ def refine_parsed_quizzes(parsed_quizzes):
     quiz_parser = CK12QuizParser()
     for quiz in parsed_quizzes.values():
         quiz_parser.refine_parsed_page(quiz)
+
+
+def simple_quiz_parser_test(parsed_quizzes):
+    for quiz_n, quiz in parsed_quizzes.items():
+        for qid, quest in quiz['question_components'].items():
+            if quest['question_type'] == 'Multiple Choice':
+                if len(quest['answer_choices']) != 4:
+                    print quiz_n + ' mc error'
+            if quest['question_type'] == 'True/False':
+                if len(quest['answer_choices']) != 2:
+                    print quiz_n + ' tf error'
+            if quest['question_type'] in ['Short Answer', 'Fill-in-the-Blank']:
+                if 'answer_choices' in quest.keys():
+                    print quiz_n + ' sa or fib error'
