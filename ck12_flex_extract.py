@@ -269,6 +269,8 @@ class CK12QuizParser(object):
         q_type = 'None'
         if 'true or false' in parsed_question['ask']['processed_content']:
             q_type = 'True/False'
+            parsed_question['ask']['processed_content'] = \
+                parsed_question['ask']['processed_content'].replace('true or false: ', '')
         if '____' in parsed_question['ask']['processed_content'] and q_type == 'None':
             q_type = 'Fill-in-the-Blank'
         if parsed_question['ask'] and 'answer_choices' not in parsed_question.keys() and q_type == 'None':
@@ -327,6 +329,8 @@ def parse_pdf_collection(pdf_dir):
         quiz_parser = CK12QuizParser()
         try:
             parsed_quiz = quiz_parser.parse_pdf(pdf_file)
+            if parsed_quiz['title'] in quiz_content.keys():
+                parsed_quiz['title'] += ' second version'
             quiz_content[parsed_quiz['title']] = parsed_quiz
         except (IndexError, KeyError) as e:
             print pdf_file
