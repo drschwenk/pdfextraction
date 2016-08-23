@@ -139,10 +139,10 @@ class QuestionTypeParser(object):
         larger_box_width = max(QuestionTypeParser.height(current_box), QuestionTypeParser.height(last_box_seen))
         return overlap / float(larger_box_width) > self.overlap_tol
 
-    def check_starting_chars(self, box_text):
-        if box_text[:2] in self.numeric_starters:
+    def check_starting_chars(self, box_text, is_correct=False):
+        if box_text[:2] in self.numeric_starters and not is_correct:
             return 'numeric start', box_text[:2]
-        elif box_text[:3] in self.numeric_starters:
+        elif box_text[:3] in self.numeric_starters and not is_correct:
             return 'numeric start', box_text[:3]
         elif box_text[:2] in self.letter_starters:
             return 'letter start', box_text[:2]
@@ -174,13 +174,13 @@ class QuestionTypeParser(object):
             self.parsed_questions[question_id]['correct_answer']['structural_id'] = structural_id
             self.parsed_questions[question_id]['correct_answer']['processed_content'] = box['processed_content']
         else:
-            self.parsed_questions[question_id]['correct_answer']['processed_content'] += '' + box['processed_content']
+            self.parsed_questions[question_id]['correct_answer']['processed_content'] += ' ' + box['processed_content']
         self.last_added_depth = 2
 
     def scan_boxes(self, text_boxes):
         for idx, box in enumerate(text_boxes):
             box_text = box['processed_content']
-            start_type, starting_chars = self.check_starting_chars(box_text)
+            start_type, starting_chars = self.check_starting_chars(box_text, box['correct'])
             box['structural_id'] = starting_chars
             if start_type == 'numeric start':
                 self.current_question_number += 1
@@ -282,7 +282,7 @@ class CK12QuizParser(object):
         return q_type
 
     @classmethod
-    def remove_structural_ids(cls, question):
+    def sanitize_parsed_quiz(cls, question):
         q_components = [question['ask']] + [question['correct_answer']]
         pck = 'processed_content'
         sik = 'structural_id'
@@ -302,15 +302,12 @@ class CK12QuizParser(object):
     def refine_parsed_page(self, parsed_page):
         for qid, question in parsed_page['question_components'].items():
             question['question_type'] = self.classify_question(question)
-
-            if 'correct_answer' not in question.keys() and question['question_type'] in 'Multiple Choice':
+            if 'correct_answer' not in question.keys() and 'answer_choices' in question.keys():
                 question['correct_answer'] = {}
                 for ac_id, answer_choice in question['answer_choices'].items():
                     if answer_choice['correct']:
                         question['correct_answer']['structural_id'] = answer_choice['structural_id']
                         question['correct_answer']['processed_content'] = answer_choice['processed_content']
-            if 'correct_answer' not in question.keys():
-                question['correct_answer'] = '_MISSING_'
             if 'answer_choices' not in question.keys() and question['question_type'] == 'True/False':
                 question['answer_choices'] = {
                     'answer_choice a': {
@@ -320,7 +317,10 @@ class CK12QuizParser(object):
                         'processed_content': 'false',
                         'structural_id': 'b)'}
                 }
-            CK12QuizParser.remove_structural_ids(question)
+            if 'correct_answer' not in question.keys():
+                question['correct_answer'] = '_MISSING_'
+
+            CK12QuizParser.sanitize_parsed_quiz(question)
 
 
 def parse_pdf_collection(pdf_dir):
