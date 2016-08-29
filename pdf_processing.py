@@ -54,7 +54,7 @@ def make_open_cv_img(page_stream, color_flag=1):
 
 def random_color():
     import random
-    return random.randint(0,255), random.randint(0,255), random.randint(0,255)
+    return random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
 
 
 def get_bbox_tuple(box, y_height):

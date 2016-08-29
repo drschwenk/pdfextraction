@@ -1,55 +1,179 @@
 import glob
 import string
 import functools
-import pdfparser.poppler as pdf
+import pdfparser.poppler as pdf_poppler
 from collections import defaultdict
 from collections import OrderedDict
 from copy import deepcopy
+import PIL.Image as Image
 import numpy as np
 
+from pdfminer.pdfparser import PDFParser
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdfpage import PDFPage
+from pdfminer.pdfinterp import PDFResourceManager
+from pdfminer.pdfinterp import PDFPageInterpreter
+from pdfminer.layout import LAParams
+from pdfminer.converter import PDFPageAggregator
+from pdfminer.layout import LTFigure
 
-class CK12FlexbookParser(object):
+
+class FlexbookParser(object):
 
     def __init__(self):
         self.current_lesson = None
         self.current_topic = None
-        self.parsed_content = defaultdict(lambda: defaultdict(str))
+        self.parsed_content = defaultdict(lambda: defaultdict(lambda: defaultdict(str)))
+        self.last_figure_caption_seen = None
+        self.sections_to_ignore = ['References']
+        self.captions_starters = ['MEDIA ', 'FIGURE ']
+        self.treat_as_list = ['Lesson Vocabulary', 'Lesson Objectives']
+        self.strings_to_ignore = ['www.ck12.org']
+        self.line_sep_tol = 5
+        self.page_vertical_dim = None
+        self.file_paths = {
+            'rasterized_page_dir': '/Users/schwenk/wrk/notebooks/stb/img_test/sips_test/Converted/',
+            'cropped_fig_dest_dir': 'cropped_figs/'
+        }
         self.section_demarcations = {
             'topic_color': (0.811767578125, 0.3411712646484375, 0.149017333984375),
             'lesson_size': 22.3082,
             'chapter_size': 0
         }
 
-    def parse_pdf(self, file_path):
-        doc = pdf.Document(file_path)
-        for page in doc:
-            self.extract_page_text(page)
-        return self.parsed_content
+    def normalize_text(self, text):
+        text = text.encode('ascii', 'ignore').lstrip().strip()
+        return text
 
-    def extract_page_text(self, page):
+    def make_page_layouts(self, pdf_file, page_range, line_overlap,
+                          char_margin,
+                          line_margin,
+                          word_margin,
+                          boxes_flow):
+        laparams = LAParams(line_overlap, char_margin, line_margin, word_margin, boxes_flow)
+        page_layouts = []
+        with open(pdf_file, 'r') as fp:
+            parser = PDFParser(fp)
+            document = PDFDocument(parser)
+            rsrcmgr = PDFResourceManager()
+            device = PDFPageAggregator(rsrcmgr, laparams=laparams)
+            interpreter = PDFPageInterpreter(rsrcmgr, device)
+            for page_n, page in enumerate(PDFPage.create_pages(document)):
+                if not page_range:
+                    interpreter.process_page(page)
+                    layout = device.get_result()
+                    page_layouts.append(layout)
+                elif page_range[0] <= page_n <= page_range[1]:
+                    interpreter.process_page(page)
+                    layout = device.get_result()
+                    page_layouts.append(layout)
+                    if not self.page_vertical_dim:
+                        self.page_vertical_dim = page.mediabox[-1]
+        return page_layouts
+
+    def parse_pdf(self, file_path, page_ranges=None):
+        doc = pdf_poppler.Document(file_path)
+        page_layouts = self.make_page_layouts(file_path, page_ranges, word_margin=0.1, line_overlap=0.5,
+                                              char_margin=2.0, line_margin=0.5, boxes_flow=0.5)
+        if not page_ranges:
+            page_ranges = [0, doc.no_of_pages()]
+        for idx, page in enumerate(doc):
+            if page_ranges[0] < idx <= page_ranges[1]:
+                page_figures = []
+                for layout_ob in page_layouts[idx - page_ranges[0]]:
+                    if isinstance(layout_ob, LTFigure):
+                        page_figures.append(layout_ob.bbox)
+                self.extract_page_text(page, page_figures)
+                self.crop_and_extract_figures(idx, page_figures)
+        return {k: v for k, v in self.parsed_content.items() if not sum([st in k for st in self.sections_to_ignore])}
+
+    def crop_and_extract_figures(self, page_n, bboxes):
+        page_image_filename = 'pg_' + str(page_n + 1).zfill(4) + '.pdf.png'
+        image_path = self.file_paths['rasterized_page_dir'] + page_image_filename
+        page_image = Image.open(image_path)
+        scale_factor = float(page_image.size[1]) / float(self.page_vertical_dim)
+        for idx, rectangle in enumerate(bboxes):
+            scaled_box = [co * scale_factor for co in rectangle]
+            temp = page_image.size[1] - scaled_box[3]
+            scaled_box[3] = page_image.size[1] - scaled_box[1]
+            scaled_box[1] = temp
+            crop = page_image.crop(scaled_box)
+            cropped_image_path = self.file_paths['cropped_fig_dest_dir'] + str(page_n + 1).zfill(4) + '_fig_' + str(idx + 1) + '.png'
+            crop.save(cropped_image_path)
+
+    @classmethod
+    def compute_box_center(cls, box_rectangle):
+        x1, y1, x2, y2 = box_rectangle
+        return np.array([(x2 - x1) / float(2), (y2 - y1) / float(2)])
+
+    @classmethod
+    def compute_centers_separation(cls, text_box_center, image_box_center):
+        return np.linalg.norm(text_box_center - image_box_center)
+
+    def find_matching_image(self, caption_bbox, page_image_bboxes):
+        closest_image = None
+        min_dist = None
+        for image in page_image_bboxes:
+            caption_center = FlexbookParser.compute_box_center(caption_bbox)
+            image_center = FlexbookParser.compute_box_center(image)
+            separation = FlexbookParser.compute_centers_separation(caption_center, image_center)
+            if not min_dist:
+                min_dist = separation
+                closest_image = image
+            elif separation < min_dist:
+                min_dist = separation
+                closest_image = image
+        return closest_image
+
+    def near_last_figure_caption(self, line):
+        if not self.last_figure_caption_seen:
+            return False
+        separation = line['rectangle'][1] - self.last_figure_caption_seen['rectangle'][3]
+        if separation < self.line_sep_tol:
+            self.last_figure_caption_seen = line
+            return True
+        else:
+            return False
+
+    def extract_page_text(self, page, page_figures):
         for flow in page:
             for block in flow:
                 for line in block:
                     line_props = {
-                        'content': line.text,
+                        'content': self.normalize_text(line.text),
                         'rectangle': line.bbox.as_tuple(),
                         'font_size': list(line.char_fonts)[0].size,
                         'font_color': list(line.char_fonts)[0].color.as_tuple()
                     }
-                    if line_props['font_size'] == self.section_demarcations['lesson_size']:
-                        self.current_lesson = line_props['content']
-                    elif line_props['font_color'] == self.section_demarcations['topic_color']:
-                        self.current_topic = line_props['content']
-                    elif not sum(line_props['font_color']) and self.current_topic:
-                        self.parsed_content[self.current_lesson][self.current_topic] += line_props['content'] + '\n'
+                    if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
+                        if line_props['font_size'] == self.section_demarcations['lesson_size']:
+                            self.current_lesson = line_props['content']
+                            self.last_figure_caption_seen = None
+                        elif line_props['font_color'] == self.section_demarcations['topic_color'] and line_props['content']:
+                            self.current_topic = line_props['content']
+                            self.last_figure_caption_seen = None
+                        elif 'FIGURE ' in line_props['content']:
+                            self.parsed_content[self.current_lesson][self.current_topic]['figures'] = {}
+                            self.parsed_content[self.current_lesson][self.current_topic]['figures']['caption'] = line_props['content']
+                            self.last_figure_caption_seen = line_props
+                            nearest_image_bbox = self.find_matching_image(line_props['rectangle'], page_figures)
+                            self.parsed_content[self.current_lesson][self.current_topic]['figures']['rectangle'] = nearest_image_bbox
+                        elif not sum(line_props['font_color']) and self.current_topic:
+                            if self.current_topic in self.treat_as_list:
+                                self.parsed_content[self.current_lesson][self.current_topic]['text'] += line_props['content'] + '\n'
+                            else:
+                                if self.near_last_figure_caption(line_props):
+                                    self.parsed_content[self.current_lesson][self.current_topic]['figures']['caption'] += ' ' + line_props['content']
+                                else:
+                                    self.parsed_content[self.current_lesson][self.current_topic]['text'] += line_props['content'] + ' '
 
 
 class QuestionTypeParser(object):
     def __init__(self, overlap_tol=None, blank_threshold=None):
         self.numeric_starters = [str(n) + '.' for n in range(15)]
         self.numeric_starters += [str(n) + ')' for n in range(15)]
-        self.letter_starters = [char + ')' for char in string.ascii_uppercase[:6]]
-        self.letter_starters += [char + ')' for char in string.ascii_lowercase[:6]]
+        self.letter_starters = [char + ')' for char in string.ascii_uppercase[:12]]
+        self.letter_starters += [char + ')' for char in string.ascii_lowercase[:12]]
         self.current_question_number = 0
         self.parsed_questions = OrderedDict()
         self.overlap_tol = overlap_tol
@@ -298,6 +422,8 @@ class CK12QuizParser(object):
                 if 'rectangle' in component.keys():
                     del component['rectangle']
                     del component['correct']
+        else:
+            question['answer_choices'] = {}
 
     def refine_parsed_page(self, parsed_page):
         for qid, question in parsed_page['question_components'].items():
@@ -310,10 +436,10 @@ class CK12QuizParser(object):
                         question['correct_answer']['processed_content'] = answer_choice['processed_content']
             if 'answer_choices' not in question.keys() and question['question_type'] == 'True/False':
                 question['answer_choices'] = {
-                    'answer_choice a': {
+                    'answer_choice a)': {
                         'processed_content': 'true',
                         'structural_id': 'a)'},
-                    'answer_choice b': {
+                    'answer_choice b)': {
                         'processed_content': 'false',
                         'structural_id': 'b)'}
                 }
@@ -352,6 +478,6 @@ def simple_quiz_parser_test(parsed_quizzes):
             if quest['question_type'] == 'True/False':
                 if len(quest['answer_choices']) != 2:
                     print quiz_n + ' tf error'
-            if quest['question_type'] in ['Short Answer', 'Fill-in-the-Blank']:
-                if 'answer_choices' in quest.keys():
-                    print quiz_n + ' sa or fib error'
+            # if quest['question_type'] in ['Short Answer', 'Fill-in-the-Blank']:
+            #     if 'answer_choices' in quest.keys():
+            #         print quiz_n + ' sa or fib error'
