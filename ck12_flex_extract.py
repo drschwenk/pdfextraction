@@ -1,6 +1,7 @@
 import glob
 import string
 import functools
+import os
 import pdfparser.poppler as pdf_poppler
 from collections import defaultdict
 from collections import OrderedDict
@@ -20,7 +21,7 @@ from pdfminer.layout import LTFigure
 
 class FlexbookParser(object):
 
-    def __init__(self):
+    def __init__(self, rasterized_pages_dir, figure_dest_dir):
         self.current_lesson = None
         self.current_topic = None
         self.parsed_content = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
@@ -32,8 +33,8 @@ class FlexbookParser(object):
         self.line_sep_tol = 5
         self.page_vertical_dim = None
         self.file_paths = {
-            'rasterized_page_dir': '/Users/schwenk/wrk/notebooks/stb/img_test/sips_test/Converted/',
-            'cropped_fig_dest_dir': 'cropped_figs/'
+            'rasterized_page_dir': rasterized_pages_dir,
+            'cropped_fig_dest_dir': figure_dest_dir
         }
         self.section_demarcations = {
             'topic_color': (0.811767578125, 0.3411712646484375, 0.149017333984375),
@@ -96,8 +97,9 @@ class FlexbookParser(object):
         scaled_box[3] = page_image.size[1] - scaled_box[1]
         scaled_box[1] = temp
         crop = page_image.crop(scaled_box)
-        cropped_image_path = self.file_paths['cropped_fig_dest_dir'] + str(page_n + 1).zfill(4) + '_fig_' + fig_n + '.png'
-        crop.save(cropped_image_path)
+        cropped_image_path = self.file_paths['cropped_fig_dest_dir'] + self.current_lesson + '_' + self.current_topic +\
+                            '_' + str(page_n + 1).zfill(4) + '_fig_' + fig_n + '.png'
+        crop.save(cropped_image_path.replace(' ', '_'))
         return cropped_image_path
 
     @classmethod
@@ -153,7 +155,7 @@ class FlexbookParser(object):
                         if line_props['font_size'] == self.section_demarcations['lesson_size']:
                             self.current_lesson = line_props['content']
                             self.last_figure_caption_seen = None
-                        elif line_props['font_color'] == self.section_demarcations['topic_color'] and line_props['content']:
+                        elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min():
                             self.current_topic = line_props['content']
                             self.last_figure_caption_seen = None
                             self.parsed_content[self.current_lesson][self.current_topic]['text'].append('')
