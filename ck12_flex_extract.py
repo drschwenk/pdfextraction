@@ -23,7 +23,7 @@ class FlexbookParser(object):
     def __init__(self):
         self.current_lesson = None
         self.current_topic = None
-        self.parsed_content = defaultdict(lambda: defaultdict(lambda: defaultdict(str)))
+        self.parsed_content = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         self.last_figure_caption_seen = None
         self.sections_to_ignore = ['References']
         self.captions_starters = ['MEDIA ', 'FIGURE ']
@@ -83,28 +83,27 @@ class FlexbookParser(object):
                 for layout_ob in page_layouts[idx - page_ranges[0]]:
                     if isinstance(layout_ob, LTFigure):
                         page_figures.append(layout_ob.bbox)
-                self.extract_page_text(page, page_figures)
-                self.crop_and_extract_figures(idx, page_figures)
+                self.extract_page_text(idx, page, page_figures)
         return {k: v for k, v in self.parsed_content.items() if not sum([st in k for st in self.sections_to_ignore])}
 
-    def crop_and_extract_figures(self, page_n, bboxes):
+    def crop_and_extract_figure(self, page_n, fig_n, rectangle):
         page_image_filename = 'pg_' + str(page_n + 1).zfill(4) + '.pdf.png'
         image_path = self.file_paths['rasterized_page_dir'] + page_image_filename
         page_image = Image.open(image_path)
         scale_factor = float(page_image.size[1]) / float(self.page_vertical_dim)
-        for idx, rectangle in enumerate(bboxes):
-            scaled_box = [co * scale_factor for co in rectangle]
-            temp = page_image.size[1] - scaled_box[3]
-            scaled_box[3] = page_image.size[1] - scaled_box[1]
-            scaled_box[1] = temp
-            crop = page_image.crop(scaled_box)
-            cropped_image_path = self.file_paths['cropped_fig_dest_dir'] + str(page_n + 1).zfill(4) + '_fig_' + str(idx + 1) + '.png'
-            crop.save(cropped_image_path)
+        scaled_box = [co * scale_factor for co in rectangle]
+        temp = page_image.size[1] - scaled_box[3]
+        scaled_box[3] = page_image.size[1] - scaled_box[1]
+        scaled_box[1] = temp
+        crop = page_image.crop(scaled_box)
+        cropped_image_path = self.file_paths['cropped_fig_dest_dir'] + str(page_n + 1).zfill(4) + '_fig_' + fig_n + '.png'
+        crop.save(cropped_image_path)
+        return cropped_image_path
 
     @classmethod
     def compute_box_center(cls, box_rectangle):
         x1, y1, x2, y2 = box_rectangle
-        return np.array([(x2 - x1) / float(2), (y2 - y1) / float(2)])
+        return np.array([(x2 + x1) / float(2), (y2 + y1) / float(2)])
 
     @classmethod
     def compute_centers_separation(cls, text_box_center, image_box_center):
@@ -113,9 +112,12 @@ class FlexbookParser(object):
     def find_matching_image(self, caption_bbox, page_image_bboxes):
         closest_image = None
         min_dist = None
+        caption_center = FlexbookParser.compute_box_center(caption_bbox)
         for image in page_image_bboxes:
-            caption_center = FlexbookParser.compute_box_center(caption_bbox)
-            image_center = FlexbookParser.compute_box_center(image)
+            compare_image = list(deepcopy(image))
+            compare_image[1] = self.page_vertical_dim - compare_image[1]
+            compare_image[3] = self.page_vertical_dim - compare_image[3]
+            image_center = FlexbookParser.compute_box_center(compare_image)
             separation = FlexbookParser.compute_centers_separation(caption_center, image_center)
             if not min_dist:
                 min_dist = separation
@@ -135,7 +137,7 @@ class FlexbookParser(object):
         else:
             return False
 
-    def extract_page_text(self, page, page_figures):
+    def extract_page_text(self, idx, page, page_figures):
         for flow in page:
             for block in flow:
                 for line in block:
@@ -152,20 +154,26 @@ class FlexbookParser(object):
                         elif line_props['font_color'] == self.section_demarcations['topic_color'] and line_props['content']:
                             self.current_topic = line_props['content']
                             self.last_figure_caption_seen = None
+                            self.parsed_content[self.current_lesson][self.current_topic]['text'].append('')
                         elif 'FIGURE ' in line_props['content']:
-                            self.parsed_content[self.current_lesson][self.current_topic]['figures'] = {}
-                            self.parsed_content[self.current_lesson][self.current_topic]['figures']['caption'] = line_props['content']
+                            figure_number = line_props['content'].replace('FIGURE ', '')
+                            new_figure_content = {}
+                            new_figure_content['caption'] = line_props['content']
                             self.last_figure_caption_seen = line_props
                             nearest_image_bbox = self.find_matching_image(line_props['rectangle'], page_figures)
-                            self.parsed_content[self.current_lesson][self.current_topic]['figures']['rectangle'] = nearest_image_bbox
+                            new_figure_content['rectangle'] = nearest_image_bbox
+                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox)
+                            new_figure_content['file_name'] = figure_file_name
+                            self.parsed_content[self.current_lesson][self.current_topic]['figures'].append(new_figure_content)
+
                         elif not sum(line_props['font_color']) and self.current_topic:
                             if self.current_topic in self.treat_as_list:
-                                self.parsed_content[self.current_lesson][self.current_topic]['text'] += line_props['content'] + '\n'
+                                self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + '\n'
                             else:
                                 if self.near_last_figure_caption(line_props):
-                                    self.parsed_content[self.current_lesson][self.current_topic]['figures']['caption'] += ' ' + line_props['content']
+                                    self.parsed_content[self.current_lesson][self.current_topic]['figures'][-1]['caption'] += ' ' + line_props['content']
                                 else:
-                                    self.parsed_content[self.current_lesson][self.current_topic]['text'] += line_props['content'] + ' '
+                                    self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + ' '
 
 
 class QuestionTypeParser(object):
