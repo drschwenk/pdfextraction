@@ -147,6 +147,8 @@ class FlexbookParser(object):
                         'font_size': list(line.char_fonts)[0].size,
                         'font_color': list(line.char_fonts)[0].color.as_tuple()
                     }
+                    if 760 < line_props['rectangle'][3] or line_props['rectangle'][3] < 50 or not line_props['content']:
+                        continue
                     if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
                         if line_props['font_size'] == self.section_demarcations['lesson_size']:
                             self.current_lesson = line_props['content']
@@ -172,7 +174,7 @@ class FlexbookParser(object):
                             else:
                                 if self.near_last_figure_caption(line_props):
                                     self.parsed_content[self.current_lesson][self.current_topic]['figures'][-1]['caption'] += ' ' + line_props['content']
-                                else:
+                                elif self.parsed_content[self.current_lesson][self.current_topic]['text']:
                                     self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + ' '
 
 
