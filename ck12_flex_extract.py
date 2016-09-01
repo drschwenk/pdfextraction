@@ -311,7 +311,7 @@ class FlexbookParser(object):
         self.captions_starters = ['MEDIA ', 'FIGURE ']
         self.treat_as_list = ['Lesson Vocabulary', 'Lesson Objectives']
         self.strings_to_ignore = ['www.ck12.org']
-        self.line_sep_tol = 5
+        self.line_sep_tol = 6
         self.list_separator = '\n'
         self.line_separator = ' '
         self.page_vertical_dim = None
@@ -461,6 +461,60 @@ class FlexbookParser(object):
                             figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox)
                             new_figure_content['file_name'] = figure_file_name
                             self.parsed_content[self.current_lesson][self.current_topic]['figures'].append(new_figure_content)
+
+                        elif not sum(line_props['font_color']) and self.current_topic:
+                            if self.current_topic in self.treat_as_list:
+                                self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.list_separator
+                            else:
+                                if self.near_last_figure_caption(line_props):
+                                    self.parsed_content[self.current_lesson][self.current_topic]['figures'][-1]['caption'] += self.line_separator + line_props['content']
+                                elif self.parsed_content[self.current_lesson][self.current_topic]['text']:
+                                    self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.line_separator
+
+
+class GradeSchoolFlexbookParser(FlexbookParser):
+    def __init__(self, rasterized_pages_dir=None, figure_dest_dir=None):
+        super(GradeSchoolFlexbookParser, self).__init__(rasterized_pages_dir, figure_dest_dir)
+        self.line_sep_tol = 10
+        self.section_demarcations = {
+            'topic_color': (0.811767578125, 0.3411712646484375, 0.149017333984375),
+            'lesson_size': 22.3082,
+            'topic_size': 10.7596
+        }
+
+    def extract_page_text(self, idx, page, page_figures):
+        for flow in page:
+            for block in flow:
+                for line in block:
+                    line_props = {
+                        'content': self.normalize_text(line.text),
+                        'rectangle': line.bbox.as_tuple(),
+                        'font_size': list(line.char_fonts)[0].size,
+                        'font_color': list(line.char_fonts)[0].color.as_tuple()
+                    }
+                    if 760 < line_props['rectangle'][3] or line_props['rectangle'][3] < 50 or not line_props['content']:
+                        continue
+                    if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
+                        if line_props['font_size'] == self.section_demarcations['lesson_size']:
+                            self.current_lesson = line_props['content']
+                            self.last_figure_caption_seen = None
+
+                        elif 'FIGURE ' in line_props['content']:
+                            figure_number = line_props['content'].replace('FIGURE ', '')
+                            new_figure_content = {}
+                            new_figure_content['caption'] = line_props['content']
+                            self.last_figure_caption_seen = line_props
+                            nearest_image_bbox = self.find_matching_image(line_props['rectangle'], page_figures)
+                            new_figure_content['rectangle'] = nearest_image_bbox
+                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox)
+                            new_figure_content['file_name'] = figure_file_name
+                            self.parsed_content[self.current_lesson][self.current_topic]['figures'].append(new_figure_content)
+
+                        elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min() \
+                                or line_props['font_size'] == self.section_demarcations['topic_size']:
+                            self.current_topic = line_props['content']
+                            self.last_figure_caption_seen = None
+                            self.parsed_content[self.current_lesson][self.current_topic]['text'].append('')
 
                         elif not sum(line_props['font_color']) and self.current_topic:
                             if self.current_topic in self.treat_as_list:
