@@ -56,8 +56,7 @@ class QuestionTypeParser(object):
     def width(cls, box):
         return QuestionTypeParser.end_x(box) - QuestionTypeParser.start_x(box)
 
-    @classmethod
-    def clean_box(cls, box):
+    def clean_box(self, box):
         if 'color' in box.keys():
             box_copy = deepcopy(box)
             del box_copy['color']
@@ -129,7 +128,7 @@ class QuestionTypeParser(object):
         self.parsed_questions[question_id] = OrderedDict()
         # order of property fields is important for get last values
         property_fields = [["question_id", question_id],
-                           ["ask",   QuestionTypeParser.clean_box(box)]]
+                           ["ask", self.clean_box(box)]]
         for field in property_fields:
             self.parsed_questions[question_id][field[0]] = field[1]
         self.last_added_depth = 2
@@ -139,7 +138,7 @@ class QuestionTypeParser(object):
         question_id = 'Q_' + str(self.current_question_number)
         if 'answer_choices' not in self.parsed_questions[question_id].keys():
             self.parsed_questions[question_id]['answer_choices'] = OrderedDict()
-        self.parsed_questions[question_id]['answer_choices'][choice_id] = QuestionTypeParser.clean_box(box)
+        self.parsed_questions[question_id]['answer_choices'][choice_id] = self.clean_box(box)
         self.last_added_depth = 3
 
     def make_correct_answer(self, box, structural_id):
@@ -531,7 +530,7 @@ class WorkbookParser(FlexbookParser):
         super(WorkbookParser, self).__init__()
         self.sections_to_ignore = ['Critical Reading', 'Critical Writing']
         self.line_separator = '\n'
-        self.q_parser = WorkbookQuestionParser
+        self.wb_q_parser = WorkbookQuestionParser
 
     def crop_and_extract_figure(self, page_n, fig_n, rectangle, extract_images=False):
         return None
@@ -542,10 +541,11 @@ class WorkbookParser(FlexbookParser):
             sections_to_keep[k] = {}
             for section, content in v.items():
                 section_type = section.split(': ')[-1]
-                if section_type in ['True or False', 'Multiple Choice', 'Matching', 'Fill in the Blank']: # not in self.sections_to_ignore:
+                if section_type in ['True or False', 'Multiple Choice', 'Matching', 'Fill in the Blank'][-1]: # not in self.sections_to_ignore:
                     concat_content_str = ' '.join(content['text'])
-                    question_section_parser = self.q_parser.get_type_specific_parser(section_type)
-                    sections_to_keep[k][section] = question_section_parser.assemble_section(concat_content_str)
+                    question_section_parser = self.wb_q_parser.get_type_specific_parser(section_type)
+                    initial_parse = question_section_parser.assemble_section(concat_content_str)
+                    sections_to_keep[k][section] = initial_parse
         return sections_to_keep
 
     def parse_pdf(self, file_path, page_ranges=None):
@@ -574,6 +574,20 @@ class WorkbookQuestionParser(QuestionTypeParser):
             return TrueFalseParser()
         elif section_type == 'Fill in the Blank':
             return FillInBlankParser()
+
+    def clean_box(self, box):
+            return box
+
+    def scan_lines(self, text_boxes):
+        for idx, box_text in enumerate(text_boxes):
+            start_type, starting_chars = self.check_starting_chars(box_text)
+            if start_type == 'numeric start':
+                self.current_question_number += 1
+                self.make_question_component(box_text, starting_chars)
+            if start_type in ['letter dot start', 'letter start']:
+                self.make_answer_choice(box_text, starting_chars)
+            if len(box_text) > 2 and not start_type:
+                self.append_box_to_last_element(box_text)
 
 
 class MultipleChoiceParser(WorkbookQuestionParser):
@@ -654,6 +668,20 @@ class MatchingParser(WorkbookQuestionParser):
                         questions[idx] = q + line
                         break
         return questions
+
+    def scan_lines(self, text_boxes):
+        question_half = text_boxes[:len(text_boxes) / 2]
+        answer_half = text_boxes[len(text_boxes) / 2:]
+        for idx, box_text in enumerate(question_half):
+            start_type, starting_chars = self.check_starting_chars(box_text)
+            if start_type == 'numeric start':
+                self.current_question_number += 1
+                self.make_question_component(box_text, starting_chars)
+                for ac in answer_half:
+                    _, answer_starting_chars = self.check_starting_chars(ac)
+                    self.make_answer_choice(ac, answer_starting_chars)
+            if len(box_text) > 2 and not start_type:
+                self.append_box_to_last_element(box_text)
 
 
 class QuizParser(FlexbookParser):
