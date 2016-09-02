@@ -73,21 +73,21 @@ class QuestionTypeParser(object):
         max_x = max(map(lambda x: QuestionTypeParser.end_x(x), sorted_box_groups))
         min_y = min(map(lambda x: QuestionTypeParser.start_y(x), sorted_box_groups))
         max_y = max(map(lambda x: QuestionTypeParser.end_y(x), sorted_box_groups))
-        combined_raw_words = self.blank_signifier.join(map(lambda x: x['raw_content'], sorted_box_groups))
-        combined_words = self.blank_signifier.join(map(lambda x: x['processed_content'], sorted_box_groups))
+        combined_raw_words = self.blank_signifier.join(map(lambda x: x['rawText'], sorted_box_groups))
+        combined_words = self.blank_signifier.join(map(lambda x: x['processedText'], sorted_box_groups))
         combined_rect = [min_x, min_y, max_x, max_y]
         new_box = {
             'correct': sorted_box_groups[0]['correct'],
-            'raw_content': combined_raw_words,
-            'processed_content': combined_words,
-            'structural_id': sorted_box_groups[0]['structural_id'],
+            'rawText': combined_raw_words,
+            'processedText': combined_words,
+            'idStructural': sorted_box_groups[0]['idStructural'],
             'rectangle': combined_rect}
         return new_box
 
     def append_box_to_last_element(self, box):
         last_val = self.get_last_added(self.parsed_questions)
         combined_box = self.merge_boxes([last_val, box])
-        start_type, starting_chars = self.check_starting_chars(combined_box['processed_content'])
+        start_type, starting_chars = self.check_starting_chars(combined_box['processedText'])
         if start_type == 'numeric start':
             self.make_question_component(combined_box, starting_chars)
         elif start_type in ['letter dot start', 'letter start']:
@@ -124,38 +124,41 @@ class QuestionTypeParser(object):
             return False, None
 
     def make_question_component(self, box, structural_id):
-        question_id = 'Q_' + str(self.current_question_number)
+        question_id = 'q' + str(self.current_question_number).zfill(2)
         self.parsed_questions[question_id] = OrderedDict()
         # order of property fields is important for get last values
-        property_fields = [["question_id", question_id],
-                           ["ask", self.clean_box(box)]]
+        property_fields = [["id", question_id],
+                           ["idStructural", structural_id],
+                           ["beingAsked", self.clean_box(box)]]
+
         for field in property_fields:
             self.parsed_questions[question_id][field[0]] = field[1]
         self.last_added_depth = 2
 
     def make_answer_choice(self, box, structural_id):
-        choice_id = 'answer_choice ' + structural_id
-        question_id = 'Q_' + str(self.current_question_number)
-        if 'answer_choices' not in self.parsed_questions[question_id].keys():
-            self.parsed_questions[question_id]['answer_choices'] = OrderedDict()
-        self.parsed_questions[question_id]['answer_choices'][choice_id] = self.clean_box(box)
+        choice_id = structural_id.replace('.', '').replace(')', '')
+        question_id = 'q' + str(self.current_question_number).zfill(2)
+        if 'answerChoices' not in self.parsed_questions[question_id].keys():
+            self.parsed_questions[question_id]['answerChoices'] = OrderedDict()
+        self.parsed_questions[question_id]['answerChoices'][choice_id] = self.clean_box(box)
+        self.parsed_questions[question_id]['answerChoices'][choice_id]['idStructural'] = structural_id
         self.last_added_depth = 3
 
     def make_correct_answer(self, box, structural_id):
-        question_id = 'Q_' + str(self.current_question_number)
+        question_id = 'q' + str(self.current_question_number).zfill(2)
         if 'correct_answer' not in self.parsed_questions[question_id].keys():
             self.parsed_questions[question_id]['correct_answer'] = {}
-            self.parsed_questions[question_id]['correct_answer']['structural_id'] = structural_id
-            self.parsed_questions[question_id]['correct_answer']['processed_content'] = box['processed_content']
+            self.parsed_questions[question_id]['correct_answer']['idStructural'] = structural_id
+            self.parsed_questions[question_id]['correct_answer']['processedText'] = box['processedText']
         else:
-            self.parsed_questions[question_id]['correct_answer']['processed_content'] += ' ' + box['processed_content']
+            self.parsed_questions[question_id]['correct_answer']['processedText'] += ' ' + box['processedText']
         self.last_added_depth = 2
 
     def scan_boxes(self, text_boxes):
         for idx, box in enumerate(text_boxes):
-            box_text = box['processed_content']
+            box_text = box['processedText']
             start_type, starting_chars = self.check_starting_chars(box_text, box['correct'])
-            box['structural_id'] = starting_chars
+            box['idStructural'] = starting_chars
             if start_type == 'numeric start':
                 self.current_question_number += 1
                 self.make_question_component(box, starting_chars)
@@ -164,7 +167,7 @@ class QuestionTypeParser(object):
             if len(box_text) > 2 and not box['correct'] and not start_type:
                 self.append_box_to_last_element(box)
             if box['correct']:
-                last_start_type, last_starter = self.check_starting_chars(self.get_last_added(self.parsed_questions)['processed_content'])
+                last_start_type, last_starter = self.check_starting_chars(self.get_last_added(self.parsed_questions)['processedText'])
                 if last_start_type != 'letter start' or last_starter == 'd)':
                     self.make_correct_answer(box, starting_chars)
 
@@ -175,7 +178,7 @@ class CK12QuizParser(object):
         self.q_parser = None
         self.parsed_content = {
             'title': '',
-            'question_components': []
+            'nonDiagramQuestions': []
         }
         self.color_demarcations = {
             'title_color': (0.0901947021484, 0.211761474609, 0.364700317383),
@@ -206,10 +209,10 @@ class CK12QuizParser(object):
         for page in doc:
             self.extract_page_text(page, page_n)
             page_n += 1
-        sorted_boxes = sorted(self.parsed_content['question_components'],
+        sorted_boxes = sorted(self.parsed_content['nonDiagramQuestions'],
                               key=lambda x: (x['rectangle'][1], x['rectangle'][0]))
         self.q_parser.scan_boxes(sorted_boxes)
-        self.parsed_content['question_components'] = self.q_parser.parsed_questions
+        self.parsed_content['nonDiagramQuestions'] = self.q_parser.parsed_questions
         return self.parsed_content
 
     def extract_page_text(self, page, page_n):
@@ -218,8 +221,8 @@ class CK12QuizParser(object):
             for block in flow:
                 for line in block:
                     line_props = {
-                        'raw_content': line.text,
-                        'processed_content': line.text.lower().strip().replace('\t', ' ').encode('ascii', 'ignore'),
+                        'rawText': line.text,
+                        'processedText': line.text.lower().strip().replace('\t', ' ').encode('ascii', 'ignore'),
                         'rectangle': list(line.bbox.as_tuple()),
                         'font_size': list(line.char_fonts)[0].size,
                         'color': max(list(line.char_fonts)[0].color.as_tuple(), list(line.char_fonts)[-1].color.as_tuple()),
@@ -228,7 +231,7 @@ class CK12QuizParser(object):
                     line_props['rectangle'][1] += self.page_dim * page_n
                     line_props['rectangle'][3] += self.page_dim * page_n
                     if self.check_color(line_props) == 'title_color':
-                        title_line_text = line_props['processed_content']
+                        title_line_text = line_props['processedText']
 
                         for sw in self.stop_words['titles']:
                             title_line_text = title_line_text.replace(sw, '')
@@ -236,62 +239,69 @@ class CK12QuizParser(object):
                     else:
                         if self.check_color(line_props) == 'red_answer':
                             line_props['correct'] = True
-                        self.parsed_content['question_components'].append(line_props)
+                        self.parsed_content['nonDiagramQuestions'].append(line_props)
         self.parsed_content['title'] += title_text.strip().encode('ascii', 'ignore')
 
     def classify_question(self, parsed_question):
         q_type = 'None'
-        if 'true or false' in parsed_question['ask']['processed_content']:
+        if 'true or false' in parsed_question['beingAsked']['processedText']:
             q_type = 'True/False'
-            parsed_question['ask']['processed_content'] = \
-                parsed_question['ask']['processed_content'].replace('true or false: ', '')
-        if '____' in parsed_question['ask']['processed_content'] and q_type == 'None':
+            parsed_question['beingAsked']['processedText'] = \
+                parsed_question['beingAsked']['processedText'].replace('true or false: ', '')
+        if '____' in parsed_question['beingAsked']['processedText'] and q_type == 'None':
             q_type = 'Fill-in-the-Blank'
-        if parsed_question['ask'] and 'answer_choices' not in parsed_question.keys() and q_type == 'None':
+        if parsed_question['beingAsked'] and 'answerChoices' not in parsed_question.keys() and q_type == 'None':
             q_type = 'Short Answer'
-        if 'answer_choices' in parsed_question.keys() and len(parsed_question['answer_choices']) == 4:
+        if 'answerChoices' in parsed_question.keys() and len(parsed_question['answerChoices']) == 4:
             q_type = 'Multiple Choice'
-        if 'answer_choices' in parsed_question.keys() and len(parsed_question['answer_choices']) == 2:
+        if 'answerChoices' in parsed_question.keys() and len(parsed_question['answerChoices']) == 2:
             q_type = 'True/False'
         return q_type
 
     @classmethod
     def sanitize_parsed_quiz(cls, question):
-        q_components = [question['ask']] + [question['correct_answer']]
-        pck = 'processed_content'
-        sik = 'structural_id'
+        q_components = [question['beingAsked']] + [question['correct_answer']]
+        pck = 'processedText'
+        sik = 'idStructural'
         for component in q_components:
             if component and component != '_MISSING_' and component[sik]:
                 component[pck] = component[pck].replace(component[sik], '').strip()
                 if 'rectangle' in component.keys():
                     del component['rectangle']
                     del component['correct']
-        if 'answer_choices' in question.keys():
-            for component in question['answer_choices'].values():
+        if 'answerChoices' in question.keys():
+            for component in question['answerChoices'].values():
                 component[pck] = component[pck].replace(component[sik], '').strip()
                 if 'rectangle' in component.keys():
                     del component['rectangle']
                     del component['correct']
         else:
-            question['answer_choices'] = {}
+            question['answerChoices'] = {}
+
+        if 'idStructural' in question['beingAsked'].keys():
+            del question['beingAsked']['idStructural']
 
     def refine_parsed_page(self, parsed_page):
-        for qid, question in parsed_page['question_components'].items():
-            question['question_type'] = self.classify_question(question)
-            if 'correct_answer' not in question.keys() and 'answer_choices' in question.keys():
+        for qid, question in parsed_page['nonDiagramQuestions'].items():
+            question['type'] = self.classify_question(question)
+            if 'correct_answer' not in question.keys() and 'answerChoices' in question.keys():
                 question['correct_answer'] = {}
-                for ac_id, answer_choice in question['answer_choices'].items():
+                for ac_id, answer_choice in question['answerChoices'].items():
                     if answer_choice['correct']:
-                        question['correct_answer']['structural_id'] = answer_choice['structural_id']
-                        question['correct_answer']['processed_content'] = answer_choice['processed_content']
-            if 'answer_choices' not in question.keys() and question['question_type'] == 'True/False':
-                question['answer_choices'] = {
-                    'answer_choice a)': {
-                        'processed_content': 'true',
-                        'structural_id': 'a)'},
-                    'answer_choice b)': {
-                        'processed_content': 'false',
-                        'structural_id': 'b)'}
+                        question['correct_answer']['idStructural'] = answer_choice['idStructural']
+                        question['correct_answer']['processedText'] = answer_choice['processedText']
+            if 'answerChoices' not in question.keys() and question['type'] == 'True/False':
+                question['answerChoices'] = {
+                    'a': {
+                        'idStructural': 'a',
+                        'processedText': 'true',
+                        'rawText': 'a. true'
+                        },
+                    'b': {
+                        'idStructural': 'b',
+                        'processedText': 'false',
+                        'rawText': 'b. false'
+                        }
                 }
             if 'correct_answer' not in question.keys():
                 question['correct_answer'] = '_MISSING_'
@@ -535,18 +545,32 @@ class WorkbookParser(FlexbookParser):
     def crop_and_extract_figure(self, page_n, fig_n, rectangle, extract_images=False):
         return None
 
+    def flatten_lesson_types(self, section):
+        section_questions = {}
+        section_q_number = 0
+        for question_type, questions in section.items():
+            for question in questions.values():
+                section_q_number += 1
+                qid = 'q' + str(section_q_number).zfill(2)
+                question['id'] = qid
+                section_questions[qid] = question
+        return {"nonDiagramQuestions": section_questions}
+
     def parse_questions(self):
         sections_to_keep = {}
         for k, v in self.parsed_content.items():
             sections_to_keep[k] = {}
             for section, content in v.items():
                 section_type = section.split(': ')[-1]
-                if section_type in ['True or False', 'Multiple Choice', 'Matching', 'Fill in the Blank'][-1]: # not in self.sections_to_ignore:
+                if section_type in ['True or False', 'Multiple Choice', 'Matching', 'Fill in the Blank']:
                     concat_content_str = ' '.join(content['text'])
                     question_section_parser = self.wb_q_parser.get_type_specific_parser(section_type)
                     initial_parse = question_section_parser.assemble_section(concat_content_str)
-                    sections_to_keep[k][section] = initial_parse
-        return sections_to_keep
+                    question_section_parser.scan_lines(initial_parse)
+                    question_section_parser.format_questions(section_type)
+                    sections_to_keep[k][section] = question_section_parser.parsed_questions
+        flattened_book = {k: self.flatten_lesson_types(v) for k, v in sections_to_keep.items()}
+        return flattened_book
 
     def parse_pdf(self, file_path, page_ranges=None):
         super(WorkbookParser, self).parse_pdf(file_path, page_ranges)
@@ -576,7 +600,10 @@ class WorkbookQuestionParser(QuestionTypeParser):
             return FillInBlankParser()
 
     def clean_box(self, box):
-            return box
+        box = {
+            "rawText": box
+        }
+        return box
 
     def scan_lines(self, text_boxes):
         for idx, box_text in enumerate(text_boxes):
@@ -588,6 +615,25 @@ class WorkbookQuestionParser(QuestionTypeParser):
                 self.make_answer_choice(box_text, starting_chars)
             if len(box_text) > 2 and not start_type:
                 self.append_box_to_last_element(box_text)
+
+    def create_answer_choices(self):
+        return {}
+
+    def format_questions(self, section_type):
+        for question in self.parsed_questions.values():
+            question['type'] = section_type
+            q_components = [question['beingAsked']]#] + [question['correct_answer']]
+            rck = 'rawText'
+            pck = 'processedText'
+            sik = 'idStructural'
+            for component in q_components:
+                if component and question[sik]:
+                    component[pck] = component[rck].replace(question[sik], '').strip()
+            if 'answerChoices' in question.keys():
+                for component in question['answerChoices'].values():
+                    component[pck] = component[rck].replace(component['idStructural'], '').strip()
+            else:
+                question['answerChoices'] = self.create_answer_choices()
 
 
 class MultipleChoiceParser(WorkbookQuestionParser):
@@ -630,6 +676,21 @@ class TrueFalseParser(WorkbookQuestionParser):
                         questions[idx] = q + line
                         break
         return questions
+
+    def create_answer_choices(self):
+        tf_answer_choices = {
+            'a': {
+                'idStructural': 'a',
+                'processedText': 'true',
+                'rawText': 'a. true',
+                },
+            'b': {
+                'idStructural': 'b',
+                'processedText': 'false',
+                'rawText': 'b. false'
+                }
+        }
+        return tf_answer_choices
 
 
 class FillInBlankParser(WorkbookQuestionParser):
@@ -697,15 +758,15 @@ def refine_parsed_quizzes(parsed_quizzes):
 
 def simple_quiz_parser_test(parsed_quizzes):
     for quiz_n, quiz in parsed_quizzes.items():
-        for qid, quest in quiz['question_components'].items():
-            if quest['question_type'] == 'Multiple Choice':
-                if len(quest['answer_choices']) != 4:
+        for qid, quest in quiz['nonDiagramQuestions'].items():
+            if quest['type'] == 'Multiple Choice':
+                if len(quest['answerChoices']) != 4:
                     print quiz_n + ' mc error'
-            if quest['question_type'] == 'True/False':
-                if len(quest['answer_choices']) != 2:
+            if quest['type'] == 'True/False':
+                if len(quest['answerChoices']) != 2:
                     print quiz_n + ' tf error'
-            # if quest['question_type'] in ['Short Answer', 'Fill-in-the-Blank']:
-            #     if 'answer_choices' in quest.keys():
+            # if quest['type'] in ['Short Answer', 'Fill-in-the-Blank']:
+            #     if 'answerChoices' in quest.keys():
             #         print quiz_n + ' sa or fib error'
 
 

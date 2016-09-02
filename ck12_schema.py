@@ -41,7 +41,7 @@ ck12_schema = {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
-                        "nonDiagramQuestions":{
+                        "nonDiagramQuestions": {
                             "type": "object",
                             "additionalProperties": False,
                             "patternProperties": {
@@ -69,7 +69,7 @@ ck12_schema = {
                                                 }
                                             }
                                         },
-                                        "answerChoices":{
+                                        "answerChoices": {
                                             "type": "object",
                                             "additionalProperties": False,
                                             "properties": {
@@ -93,7 +93,7 @@ ck12_schema = {
                             "type": ["string", "null"],
                             "additionalProperties": False,
                             "properties": {
-                                "id":{
+                                "id": {
                                     "type": ["string", "null"],
                                     "pattern": "^({diagramQuestions})$"
                                 },
