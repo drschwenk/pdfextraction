@@ -314,6 +314,7 @@ class FlexbookParser(object):
     def __init__(self, rasterized_pages_dir=None, figure_dest_dir=None):
         self.current_lesson = None
         self.current_topic = None
+        self.current_topic_number = 1
         self.parsed_content = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         self.last_figure_caption_seen = None
         self.sections_to_ignore = ['References']
@@ -333,6 +334,9 @@ class FlexbookParser(object):
             'lesson_size': 22.3082,
             'chapter_size': 0
         }
+
+    def reset_flex_parser(self):
+        self.parsed_content = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
     def normalize_text(self, text):
         text = text.encode('ascii', 'ignore').lstrip().strip()
@@ -454,11 +458,14 @@ class FlexbookParser(object):
                         if line_props['font_size'] == self.section_demarcations['lesson_size']:
                             self.current_lesson = line_props['content']
                             self.last_figure_caption_seen = None
+                            self.current_topic_number = 1
 
                         elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min():
                             self.current_topic = line_props['content']
+                            self.parsed_content[self.current_lesson][self.current_topic]['orderID'] = \
+                                't_' + str(self.current_topic_number).zfill(2)
                             self.last_figure_caption_seen = None
-
+                            self.current_topic_number += 1
                             self.parsed_content[self.current_lesson][self.current_topic]['text'].append('')
                         elif 'FIGURE ' in line_props['content']:
                             figure_number = line_props['content'].replace('FIGURE ', '')
@@ -539,8 +546,10 @@ class WorkbookParser(FlexbookParser):
     def __init__(self):
         super(WorkbookParser, self).__init__()
         self.sections_to_ignore = ['Critical Reading', 'Critical Writing']
+        self.sections_to_keep = ['True or False', 'Multiple Choice', 'Matching', 'Fill in the Blank']
         self.line_separator = '\n'
         self.wb_q_parser = WorkbookQuestionParser
+        self.wb_ans_parser = WorkbookAnswerKeyParser()
 
     def crop_and_extract_figure(self, page_n, fig_n, rectangle, extract_images=False):
         return None
@@ -556,25 +565,50 @@ class WorkbookParser(FlexbookParser):
                 section_questions[qid] = question
         return {"nonDiagramQuestions": section_questions}
 
-    def parse_questions(self):
-        sections_to_keep = {}
+    def parse_answers(self):
+        parsed_answer_sections = defaultdict(dict)
+        current_lesson = None
         for k, v in self.parsed_content.items():
-            sections_to_keep[k] = {}
+            for section, content in v.items():
+                if 'Lesson' in section:
+                    current_lesson = section.replace('Worksheet Answer Key', '')
+                else:
+                    section_type = section
+                    if section_type in self.sections_to_keep:
+                        concat_content_str = ' '.join(content['text'])
+                        answer_section_parser = self.wb_q_parser.get_type_specific_parser(section_type)
+                        initial_parse = answer_section_parser.assemble_section(concat_content_str)
+                        answer_section_parser.scan_answer_lines(initial_parse)
+                        # answer_section_parser.format_questions(section_type)
+                        parsed_answer_sections[current_lesson][section] = answer_section_parser.parsed_questions
+        return parsed_answer_sections
+
+    def parse_questions(self):
+        parsed_question_sections = {}
+        for k, v in self.parsed_content.items():
+            parsed_question_sections[k] = {}
             for section, content in v.items():
                 section_type = section.split(': ')[-1]
-                if section_type in ['True or False', 'Multiple Choice', 'Matching', 'Fill in the Blank']:
+                if section_type in self.sections_to_keep:
                     concat_content_str = ' '.join(content['text'])
                     question_section_parser = self.wb_q_parser.get_type_specific_parser(section_type)
                     initial_parse = question_section_parser.assemble_section(concat_content_str)
                     question_section_parser.scan_lines(initial_parse)
                     question_section_parser.format_questions(section_type)
-                    sections_to_keep[k][section] = question_section_parser.parsed_questions
-        flattened_book = {k: self.flatten_lesson_types(v) for k, v in sections_to_keep.items()}
-        return flattened_book
+                    parsed_question_sections[k][section] = question_section_parser.parsed_questions
+        return parsed_question_sections
 
-    def parse_pdf(self, file_path, page_ranges=None):
-        super(WorkbookParser, self).parse_pdf(file_path, page_ranges)
-        return self.parse_questions()
+    def parse_worksheet_pdf(self, file_path, question_pages, answer_pages):
+        super(WorkbookParser, self).parse_pdf(file_path, question_pages)
+        parsed_questions = self.parse_questions()
+
+        self.reset_flex_parser()
+
+        super(WorkbookParser, self).parse_pdf(file_path, answer_pages)
+        parsed_answers = self.parse_answers()
+
+        # flattened_book = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
+        return parsed_answers
 
 
 class WorkbookQuestionParser(QuestionTypeParser):
@@ -605,6 +639,18 @@ class WorkbookQuestionParser(QuestionTypeParser):
         }
         return box
 
+    def make_answer_component(self, box, structural_id):
+        question_id = 'q' + str(self.current_question_number).zfill(2)
+        self.parsed_questions[question_id] = OrderedDict()
+        # order of property fields is important for get last values
+        property_fields = [["id", question_id],
+                           ["idStructural", structural_id],
+                           ["correctAnswer", self.clean_box(box)]]
+
+        for field in property_fields:
+            self.parsed_questions[question_id][field[0]] = field[1]
+        self.last_added_depth = 2
+
     def scan_lines(self, text_boxes):
         for idx, box_text in enumerate(text_boxes):
             start_type, starting_chars = self.check_starting_chars(box_text)
@@ -616,24 +662,48 @@ class WorkbookQuestionParser(QuestionTypeParser):
             if len(box_text) > 2 and not start_type:
                 self.append_box_to_last_element(box_text)
 
+    def scan_answer_lines(self, text_boxes):
+        for idx, box_text in enumerate(text_boxes):
+            start_type, starting_chars = self.check_starting_chars(box_text)
+            if start_type == 'numeric start':
+                self.current_question_number += 1
+                self.make_answer_component(box_text, starting_chars)
+
+            if len(box_text) > 2 and not start_type:
+                self.append_box_to_last_element(box_text)
+
     def create_answer_choices(self):
         return {}
 
     def format_questions(self, section_type):
         for question in self.parsed_questions.values():
             question['type'] = section_type
-            q_components = [question['beingAsked']]#] + [question['correct_answer']]
+            q_components = [question['beingAsked']]
             rck = 'rawText'
             pck = 'processedText'
             sik = 'idStructural'
             for component in q_components:
                 if component and question[sik]:
                     component[pck] = component[rck].replace(question[sik], '').strip()
-            if 'answerChoices' in question.keys():
-                for component in question['answerChoices'].values():
-                    component[pck] = component[rck].replace(component['idStructural'], '').strip()
-            else:
-                question['answerChoices'] = self.create_answer_choices()
+                else:
+                    question['answerChoices'] = self.create_answer_choices()
+
+
+class WorkbookAnswerKeyParser(WorkbookQuestionParser):
+
+    def __init__(self):
+        super(WorkbookAnswerKeyParser, self).__init__()
+
+    def scan_lines(self, text_boxes):
+        for idx, box_text in enumerate(text_boxes):
+            start_type, starting_chars = self.check_starting_chars(box_text)
+            if start_type == 'numeric start':
+                self.current_question_number += 1
+                self.make_question_component(box_text, starting_chars)
+            if start_type in ['letter dot start', 'letter start']:
+                self.make_answer_choice(box_text, starting_chars)
+            if len(box_text) > 2 and not start_type:
+                self.append_box_to_last_element(box_text)
 
 
 class MultipleChoiceParser(WorkbookQuestionParser):
@@ -748,6 +818,10 @@ class MatchingParser(WorkbookQuestionParser):
 class QuizParser(FlexbookParser):
     def __init__(self):
         super(QuizParser, self).__init__()
+
+
+def join_content_and_questions():
+    pass
 
 
 def refine_parsed_quizzes(parsed_quizzes):
