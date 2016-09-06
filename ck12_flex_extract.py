@@ -384,9 +384,9 @@ class FlexbookParser(object):
         return self.filter_categories()
 
     def filter_categories(self):
-        cleaned_content = {k: v for k, v in self.parsed_content.items() if
-                           not sum([st in k for st in self.sections_to_ignore])}
-        return cleaned_content
+        for k, v in self.parsed_content.items():
+            if k.split(' ')[-1] in self.sections_to_ignore:
+                del self.parsed_content[k]
 
     def crop_and_extract_figure(self, page_n, fig_n, rectangle, extract_images=False):
         page_image_filename = 'pg_' + str(page_n + 1).zfill(4) + '.pdf.png'
@@ -545,14 +545,58 @@ class GradeSchoolFlexbookParser(FlexbookParser):
 class WorkbookParser(FlexbookParser):
     def __init__(self):
         super(WorkbookParser, self).__init__()
-        self.sections_to_ignore = ['Critical Reading', 'Critical Writing']
         self.sections_to_keep = ['True or False', 'Multiple Choice', 'Matching', 'Fill in the Blank']
+        self.section_demarcations = {
+            'topic_color': (0.811767578125, 0.3411712646484375, 0.149017333984375),
+            'answer_lesson_size': 12.9115,
+            'lesson_size': 22.3082,
+            'ak_str': ' Worksheet Answer Key'
+        }
+
         self.line_separator = '\n'
         self.wb_q_parser = WorkbookQuestionParser
         self.wb_ans_parser = WorkbookAnswerKeyParser()
 
-    def crop_and_extract_figure(self, page_n, fig_n, rectangle, extract_images=False):
-        return None
+    def extract_page_text(self, idx, page, page_figures):
+        for flow in page:
+            for block in flow:
+                for line in block:
+
+                    line_props = {
+                        'content': self.normalize_text(line.text),
+                        'rectangle': line.bbox.as_tuple(),
+                        'font_size': list(line.char_fonts)[0].size,
+                        'font_color': list(line.char_fonts)[0].color.as_tuple()
+                    }
+                    if 760 < line_props['rectangle'][3] or line_props['rectangle'][3] < 50 or not line_props['content']:
+                        continue
+                    if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
+                        if line_props['font_size'] == self.section_demarcations['lesson_size']:
+                            self.current_lesson = line_props['content']
+                            self.last_figure_caption_seen = None
+                            self.current_topic_number = 1
+                        elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min():
+                            if line_props['font_size'] == self.section_demarcations['answer_lesson_size'] and \
+                                    self.section_demarcations['ak_str'] in line_props['content']:
+                                self.current_lesson = line_props['content'].replace(self.section_demarcations['ak_str'], '')
+                                self.last_figure_caption_seen = None
+                                self.current_topic_number = 1
+                            else:
+                                self.current_topic = line_props['content']
+                                self.parsed_content[self.current_lesson][self.current_topic]['orderID'] = \
+                                    't_' + str(self.current_topic_number).zfill(2)
+                                self.last_figure_caption_seen = None
+                                self.current_topic_number += 1
+                                self.parsed_content[self.current_lesson][self.current_topic]['text'].append('')
+
+                        elif not sum(line_props['font_color']) and self.current_topic \
+                                and self.parsed_content[self.current_lesson][self.current_topic]['text']:
+                                self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.line_separator
+
+    def filter_categories(self):
+        for k, v in self.parsed_content.items():
+            if k.split(' ')[-1] in self.sections_to_ignore:
+                del self.parsed_content[k]
 
     def flatten_lesson_types(self, section):
         section_questions = {}
@@ -567,20 +611,16 @@ class WorkbookParser(FlexbookParser):
 
     def parse_answers(self):
         parsed_answer_sections = defaultdict(dict)
-        current_lesson = None
-        for k, v in self.parsed_content.items():
-            for section, content in v.items():
-                if 'Lesson' in section:
-                    current_lesson = section.replace('Worksheet Answer Key', '')
-                else:
-                    section_type = section
-                    if section_type in self.sections_to_keep:
-                        concat_content_str = ' '.join(content['text'])
-                        answer_section_parser = self.wb_q_parser.get_type_specific_parser(section_type)
-                        initial_parse = answer_section_parser.assemble_section(concat_content_str)
-                        answer_section_parser.scan_answer_lines(initial_parse)
-                        # answer_section_parser.format_questions(section_type)
-                        parsed_answer_sections[current_lesson][section] = answer_section_parser.parsed_questions
+        for current_lesson, lesson in self.parsed_content.items():
+            for section, content in lesson.items():
+                section_type = section
+                if section_type in self.sections_to_keep:
+                    concat_content_str = ' '.join(content['text'])
+                    answer_section_parser = self.wb_q_parser.get_type_specific_parser(section_type, True)
+                    initial_parse = answer_section_parser.assemble_section(concat_content_str)
+                    answer_section_parser.scan_answer_lines(initial_parse)
+                    answer_section_parser.format_correct_answers(section_type)
+                    parsed_answer_sections[current_lesson][section] = answer_section_parser.parsed_questions
         return parsed_answer_sections
 
     def parse_questions(self):
@@ -598,6 +638,21 @@ class WorkbookParser(FlexbookParser):
                     parsed_question_sections[k][section] = question_section_parser.parsed_questions
         return parsed_question_sections
 
+    @classmethod
+    def join_questions_w_answer_keys(cls, parsed_questions, parsed_answers):
+        ans_key_set = set([ts.split(' ')[1] for ts in parsed_answers.keys()])
+        quest_key_set = set([ts.split(' ')[0] for ts in parsed_questions.keys()])
+        assert ans_key_set == quest_key_set
+        for lesson, sections in parsed_questions.items():
+            for section_name, section in sections.items():
+                lesson_n, q_type = section_name.split(': ')
+                for q_id, question in section.items():
+                    try:
+                        question['correctAnswer'] = parsed_answers[lesson_n][q_type][q_id]['correctAnswer']
+                    except KeyError as e:
+                        print e
+                        print lesson_n, q_type
+
     def parse_worksheet_pdf(self, file_path, question_pages, answer_pages):
         super(WorkbookParser, self).parse_pdf(file_path, question_pages)
         parsed_questions = self.parse_questions()
@@ -607,15 +662,15 @@ class WorkbookParser(FlexbookParser):
         super(WorkbookParser, self).parse_pdf(file_path, answer_pages)
         parsed_answers = self.parse_answers()
 
-        # flattened_book = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
-        return parsed_answers
+        WorkbookParser.join_questions_w_answer_keys(parsed_questions, parsed_answers)
+        flattened_workbook = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
+        return flattened_workbook
 
 
 class WorkbookQuestionParser(QuestionTypeParser):
     def __init__(self):
         super(WorkbookQuestionParser, self).__init__()
         self.letter_starters = [char + '.' for char in string.ascii_lowercase[:12]]
-        self.sections_to_ignore = ['Critical Reading', 'Critical Writing']
         self.strings_to_ignore = ['Name___________________ Class______________ Date________',
                                   'Write true if the statement is true or false if the statement is false.',
                                   'Match each definition with the correct term.',
@@ -623,8 +678,10 @@ class WorkbookQuestionParser(QuestionTypeParser):
                                   'Circle the letter of the correct choice.']
 
     @classmethod
-    def get_type_specific_parser(cls, section_type):
-        if section_type == 'Multiple Choice':
+    def get_type_specific_parser(cls, section_type, answer_key=False):
+        if section_type == 'Multiple Choice' and answer_key:
+            return MultipleChoiceAKParser()
+        elif section_type == 'Multiple Choice':
             return MultipleChoiceParser()
         elif section_type == 'Matching':
             return MatchingParser()
@@ -688,6 +745,19 @@ class WorkbookQuestionParser(QuestionTypeParser):
                 else:
                     question['answerChoices'] = self.create_answer_choices()
 
+    def format_correct_answers(self, section_type):
+        for question in self.parsed_questions.values():
+            question['type'] = section_type
+            q_components = [question['correctAnswer']]
+            rck = 'rawText'
+            pck = 'processedText'
+            sik = 'idStructural'
+            for component in q_components:
+                if component and question[sik]:
+                    component[pck] = component[rck].replace(question[sik], '').strip()
+                else:
+                    question['answerChoices'] = self.create_answer_choices()
+
 
 class WorkbookAnswerKeyParser(WorkbookQuestionParser):
 
@@ -709,6 +779,29 @@ class WorkbookAnswerKeyParser(WorkbookQuestionParser):
 class MultipleChoiceParser(WorkbookQuestionParser):
     def __init__(self):
         super(MultipleChoiceParser, self).__init__()
+        self.numeric_starters = [str(n) + '. ' for n in range(15)]
+
+    def assemble_section(self, section_str):
+        questions = []
+        lines = section_str.split('\n')
+        for line in lines:
+            if line in self.strings_to_ignore:
+                continue
+            start_type, starting_chars = self.check_starting_chars(line)
+            if start_type in ['numeric start', 'letter start']:
+                questions.append(line)
+            else:
+                for idx, q in enumerate(questions):
+                    if len(q) < 3:
+                        questions[idx] = ' '.join([q, line])
+                        break
+        return questions
+
+
+class MultipleChoiceAKParser(WorkbookQuestionParser):
+
+    def __init__(self):
+        super(MultipleChoiceAKParser, self).__init__()
 
     def assemble_section(self, section_str):
         questions = []
@@ -770,7 +863,8 @@ class FillInBlankParser(WorkbookQuestionParser):
         for line in lines:
             if line in self.strings_to_ignore:
                 continue
-            if line in self.numeric_starters:
+            start_type, starting_chars = self.check_starting_chars(line)
+            if starting_chars in self.numeric_starters:
                 questions.append(line)
             else:
                 for idx, q in enumerate(questions):
