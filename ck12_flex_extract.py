@@ -8,6 +8,7 @@ from collections import OrderedDict
 from copy import deepcopy
 import PIL.Image as Image
 import numpy as np
+import fuzzywuzzy.fuzz as fuzz
 
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdfdocument import PDFDocument
@@ -759,23 +760,6 @@ class WorkbookQuestionParser(QuestionTypeParser):
                     question['answerChoices'] = self.create_answer_choices()
 
 
-class WorkbookAnswerKeyParser(WorkbookQuestionParser):
-
-    def __init__(self):
-        super(WorkbookAnswerKeyParser, self).__init__()
-
-    def scan_lines(self, text_boxes):
-        for idx, box_text in enumerate(text_boxes):
-            start_type, starting_chars = self.check_starting_chars(box_text)
-            if start_type == 'numeric start':
-                self.current_question_number += 1
-                self.make_question_component(box_text, starting_chars)
-            if start_type in ['letter dot start', 'letter start']:
-                self.make_answer_choice(box_text, starting_chars)
-            if len(box_text) > 2 and not start_type:
-                self.append_box_to_last_element(box_text)
-
-
 class MultipleChoiceParser(WorkbookQuestionParser):
     def __init__(self):
         super(MultipleChoiceParser, self).__init__()
@@ -909,13 +893,39 @@ class MatchingParser(WorkbookQuestionParser):
                 self.append_box_to_last_element(box_text)
 
 
-class QuizParser(FlexbookParser):
+class QuizParser(WorkbookParser):
     def __init__(self):
         super(QuizParser, self).__init__()
 
 
-def join_content_and_questions():
-    pass
+class CK12DataSetAssembler(object):
+
+    def __init__(self):
+        self.char_match_thresh = 85
+
+    def join_content_and_questions(self, flexbook, workbook):
+        self.check_topic_matches(flexbook, workbook)
+        joined_flexbook = {k: dict(v, **workbook[k]) for k, v in flexbook.items()}
+        return joined_flexbook
+
+    def check_topic_matches(self, flexbook, workbook):
+        fb_keys = set(flexbook.keys())
+        wb_keys = set(workbook.keys())
+
+        if fb_keys != wb_keys:
+            fb_keys_missing = fb_keys.difference(wb_keys)
+            print 'topic mismatch, attempting to match keys ' + str(fb_keys_missing)
+            for wb_topic in wb_keys:
+                for fb_topic in fb_keys_missing:
+                    char_match = fuzz.ratio(wb_topic, fb_topic)
+                    if char_match > self.char_match_thresh:
+                        # print fb_topic
+                        # print wb_topic
+                        # print char_match
+                        workbook[fb_topic] = workbook.pop(wb_topic)
+        wb_keys = set(workbook.keys())
+        assert fb_keys == wb_keys
+
 
 
 def refine_parsed_quizzes(parsed_quizzes):
