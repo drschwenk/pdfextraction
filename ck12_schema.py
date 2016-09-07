@@ -2,34 +2,43 @@ ck12_schema = {
     "type": "object",
     "$schema": "http://json-schema.org/draft-04/schema",
     "additionalProperties": False,
-    "properties": {
-        "lessons": {
+    "patternProperties": {
+        "^[\w]+\.?[\w\s]+$": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
                 "topics": {
                     "type": "object",
                     "additionalProperties": False,
-                    "properties": {
-                        "id": {
-                            {"type": "integer"}
-                        },
-                        "content": {
+                    "patternProperties": {
+                        "^[A-Za-z\s]+$": {
                             "type": "object",
+                            "required": ["content", "orderID"],
                             "additionalProperties": False,
                             "properties": {
-                                "text": {
-                                    {"type": "string"}
+                                "orderID": {
+                                    "type": "string"
                                 },
-                                "figures": {
+                                "content": {
                                     "type": "object",
+                                    "required": ["text", "figures"],
                                     "additionalProperties": False,
                                     "properties": {
-                                        "caption": {
-                                            {"type": "string"}
+                                        "text": {
+                                            "type": "string"
                                         },
-                                        "imageUri": {
-                                            {"type": "string"}
+                                        "figures": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "caption": {
+                                                        "type": "string"
+                                                    },
+                                                    "imageUri": {
+                                                        "type": "string"
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -45,17 +54,22 @@ ck12_schema = {
                             "type": "object",
                             "additionalProperties": False,
                             "patternProperties": {
-                                "^Q[0-9]+$": {
+                                "^q[0-9]+$": {
                                     "type": "object",
                                     "required": ["beingAsked", "correctAnswer", "id"],
                                     "additionalProperties": False,
                                     "properties": {
                                         "id": {
                                             "type": "string",
-                                            "pattern": "^({nonDiagramQuestions})$"
+                                            "pattern": "^q[0-9]+$"
+                                        },
+                                        "idStructural": {
+                                            "type": ["string", "null"],
+                                            "pattern": "^[1-9](?:\.|\))\s?$"
                                         },
                                         "type": {
-                                            "enum": ["True or False", "Multiple Choice", "Matching", "Fill in the Blank"]
+                                            "enum": ["True or False", "Multiple Choice", "Matching",
+                                                     "Fill in the Blank"]
                                         },
                                         "beingAsked": {
                                             "type": "object",
@@ -64,7 +78,19 @@ ck12_schema = {
                                                 "rawText": {
                                                     "type": "string"
                                                 },
-                                                "normalizedText": {
+                                                "processedText": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        "correctAnswer": {
+                                            "type": "object",
+                                            "additionalProperties": False,
+                                            "properties": {
+                                                "rawText": {
+                                                    "type": "string"
+                                                },
+                                                "processedText": {
                                                     "type": "string"
                                                 }
                                             }
@@ -72,36 +98,44 @@ ck12_schema = {
                                         "answerChoices": {
                                             "type": "object",
                                             "additionalProperties": False,
-                                            "properties": {
-                                                "idStructural": {
-                                                    "type": ["string", "null"],
-                                                    "pattern": "^({answerChoices})$"
-                                                },
-                                                "rawText": {
-                                                    "type": ["string", "null"],
-                                                },
-                                                "normalizedText": {
-                                                    "type": ["string", "null"],
+                                            "patternProperties": {
+                                                "[a-z]": {
+                                                    "type": "object",
+                                                    "required": ["idStructural", "rawText", "processedText"],
+                                                    "additionalProperties": False,
+                                                    "properties": {
+                                                        "idStructural": {
+                                                            "type": ["string", "null"],
+                                                            "pattern": "[a-z][\.|\)]"
+                                                        },
+                                                        "rawText": {
+                                                            "type": ["string", "null"],
+                                                        },
+                                                        "processedText": {
+                                                            "type": ["string", "null"],
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
-                            }
+                        }
                         },
                         "diagramQuestions": {
-                            "type": ["string", "null"],
+                            "type": ["object"],
                             "additionalProperties": False,
                             "properties": {
                                 "id": {
                                     "type": ["string", "null"],
                                     "pattern": "^({diagramQuestions})$"
                                 },
+
                                 "beingAsked": {
                                     "type": "object",
                                     "additionalProperties": False,
                                     "properties": {
-                                        "normalizedText": {
+                                        "processedText": {
                                             "type": "string"
                                         }
                                     }
@@ -114,9 +148,7 @@ ck12_schema = {
                                             "type": "string",
                                             "pattern": "^({answerChoices})$"
                                         },
-                                        "normalizedText": {
-                                            "type": "string"
-                                        }
+
                                     }
                                 },
                                 "figure": {
@@ -124,7 +156,7 @@ ck12_schema = {
                                     "additionalProperties": False,
                                     "properties": {
                                         "imageUri": {
-                                            {"type": "string"}
+                                            "type": "string"
                                         }
                                     }
                                 }
@@ -137,7 +169,7 @@ ck12_schema = {
                     "additionalProperties": False,
                     "properties": {
                         "source": {
-                            {"type": "string"}
+                            "type": "string"
                         }
                     }
                 }

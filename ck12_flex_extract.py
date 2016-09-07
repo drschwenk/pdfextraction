@@ -1,7 +1,7 @@
 import glob
 import string
 import functools
-import os
+import string
 import pdfparser.poppler as pdf_poppler
 from collections import defaultdict
 from collections import OrderedDict
@@ -372,6 +372,7 @@ class FlexbookParser(object):
     def parse_pdf(self, file_path, page_ranges=None):
         doc = pdf_poppler.Document(file_path)
         page_layouts = self.make_page_layouts(file_path, page_ranges, word_margin=0.1, line_overlap=0.5,
+
                                               char_margin=2.0, line_margin=0.5, boxes_flow=0.5)
         if not page_ranges:
             page_ranges = [0, doc.no_of_pages()]
@@ -381,7 +382,7 @@ class FlexbookParser(object):
                 for layout_ob in page_layouts[idx - page_ranges[0]]:
                     if isinstance(layout_ob, LTFigure):
                         page_figures.append(layout_ob.bbox)
-                self.extract_page_text(idx, page, page_figures)
+                self.extract_page_text(idx, page, page_figures, file_path.split('/')[-1])
         return self.filter_categories()
 
     def filter_categories(self):
@@ -443,7 +444,7 @@ class FlexbookParser(object):
         else:
             return False
 
-    def extract_page_text(self, idx, page, page_figures):
+    def extract_page_text(self, idx, page, page_figures, book_name):
         for flow in page:
             for block in flow:
                 for line in block:
@@ -460,9 +461,10 @@ class FlexbookParser(object):
                             self.current_lesson = line_props['content']
                             self.last_figure_caption_seen = None
                             self.current_topic_number = 1
+                            self.parsed_content[self.current_lesson]['hidden'] = {"source": str(idx + 2) + '_' + book_name}
 
                         elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min():
-                            self.current_topic = line_props['content']
+                            self.current_topic = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
                             self.parsed_content[self.current_lesson][self.current_topic]['orderID'] = \
                                 't_' + str(self.current_topic_number).zfill(2)
                             self.last_figure_caption_seen = None
@@ -499,7 +501,7 @@ class GradeSchoolFlexbookParser(FlexbookParser):
             'topic_size': 10.7596
         }
 
-    def extract_page_text(self, idx, page, page_figures):
+    def extract_page_text(self, idx, page, page_figures, book_name):
         for flow in page:
             for block in flow:
                 for line in block:
@@ -513,7 +515,7 @@ class GradeSchoolFlexbookParser(FlexbookParser):
                         continue
                     if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
                         if line_props['font_size'] == self.section_demarcations['lesson_size']:
-                            self.current_lesson = line_props['content']
+                            self.current_lesson = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
                             self.last_figure_caption_seen = None
 
                         elif 'FIGURE ' in line_props['content']:
@@ -556,9 +558,8 @@ class WorkbookParser(FlexbookParser):
 
         self.line_separator = '\n'
         self.wb_q_parser = WorkbookQuestionParser
-        self.wb_ans_parser = WorkbookAnswerKeyParser()
 
-    def extract_page_text(self, idx, page, page_figures):
+    def extract_page_text(self, idx, page, page_figures, book_name):
         for flow in page:
             for block in flow:
                 for line in block:
@@ -573,7 +574,7 @@ class WorkbookParser(FlexbookParser):
                         continue
                     if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
                         if line_props['font_size'] == self.section_demarcations['lesson_size']:
-                            self.current_lesson = line_props['content']
+                            self.current_lesson = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
                             self.last_figure_caption_seen = None
                             self.current_topic_number = 1
                         elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min():
@@ -582,6 +583,7 @@ class WorkbookParser(FlexbookParser):
                                 self.current_lesson = line_props['content'].replace(self.section_demarcations['ak_str'], '')
                                 self.last_figure_caption_seen = None
                                 self.current_topic_number = 1
+
                             else:
                                 self.current_topic = line_props['content']
                                 self.parsed_content[self.current_lesson][self.current_topic]['orderID'] = \
@@ -608,7 +610,7 @@ class WorkbookParser(FlexbookParser):
                 qid = 'q' + str(section_q_number).zfill(2)
                 question['id'] = qid
                 section_questions[qid] = question
-        return {"nonDiagramQuestions": section_questions}
+        return {"nonDiagramQuestions": section_questions, "diagramQuestions": {}}
 
     def parse_answers(self):
         parsed_answer_sections = defaultdict(dict)
@@ -654,6 +656,9 @@ class WorkbookParser(FlexbookParser):
                         print e
                         print lesson_n, q_type
 
+    def restructure_parsed_content(self, workbook):
+        return {k: {'questions': v} for k, v in workbook.items()}
+
     def parse_worksheet_pdf(self, file_path, question_pages, answer_pages):
         super(WorkbookParser, self).parse_pdf(file_path, question_pages)
         parsed_questions = self.parse_questions()
@@ -662,10 +667,9 @@ class WorkbookParser(FlexbookParser):
 
         super(WorkbookParser, self).parse_pdf(file_path, answer_pages)
         parsed_answers = self.parse_answers()
-
         WorkbookParser.join_questions_w_answer_keys(parsed_questions, parsed_answers)
         flattened_workbook = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
-        return flattened_workbook
+        return self.restructure_parsed_content(flattened_workbook)
 
 
 class WorkbookQuestionParser(QuestionTypeParser):
@@ -737,14 +741,19 @@ class WorkbookQuestionParser(QuestionTypeParser):
         for question in self.parsed_questions.values():
             question['type'] = section_type
             q_components = [question['beingAsked']]
+
             rck = 'rawText'
             pck = 'processedText'
             sik = 'idStructural'
             for component in q_components:
                 if component and question[sik]:
                     component[pck] = component[rck].replace(question[sik], '').strip()
-                else:
-                    question['answerChoices'] = self.create_answer_choices()
+            if 'answerChoices' in question.keys():
+                for cid, choice in question['answerChoices'].items():
+                    if choice and choice[sik]:
+                        choice[pck] = choice[rck].replace(choice[sik], '').strip()
+            else:
+                question['answerChoices'] = self.create_answer_choices()
 
     def format_correct_answers(self, section_type):
         for question in self.parsed_questions.values():
@@ -756,8 +765,6 @@ class WorkbookQuestionParser(QuestionTypeParser):
             for component in q_components:
                 if component and question[sik]:
                     component[pck] = component[rck].replace(question[sik], '').strip()
-                else:
-                    question['answerChoices'] = self.create_answer_choices()
 
 
 class MultipleChoiceParser(WorkbookQuestionParser):
@@ -827,12 +834,12 @@ class TrueFalseParser(WorkbookQuestionParser):
     def create_answer_choices(self):
         tf_answer_choices = {
             'a': {
-                'idStructural': 'a',
+                'idStructural': 'a.',
                 'processedText': 'true',
                 'rawText': 'a. true',
                 },
             'b': {
-                'idStructural': 'b',
+                'idStructural': 'b.',
                 'processedText': 'false',
                 'rawText': 'b. false'
                 }
@@ -898,6 +905,38 @@ class QuizParser(WorkbookParser):
         super(QuizParser, self).__init__()
 
 
+class TextbookParser(FlexbookParser):
+
+    def __init__(self, overlap_tol=None, blank_threshold=None):
+        super(TextbookParser, self).__init__(overlap_tol, blank_threshold)
+
+    def restructure_parsed_content(self, pdf_path):
+        local_path = '../flexbook_image_extraction/figures/'
+        s3_uri = 'https://s3.amazonaws.com/ai2-vision-textbook-dataset/ck12/flexbooks/extracted-figures/'
+
+        for lesson, subcontent in self.parsed_content.items():
+            for concept, content in subcontent.items():
+                if concept == 'hidden':
+                    continue
+                content['text'] = content['text'][0]
+                for fig in content['figures']:
+                    fig['image_uri'] = fig['file_name'].replace(local_path, s3_uri)
+                    del fig['rectangle']
+                    del fig['file_name']
+                content['content'] = {}
+                content['content']['text'] = content.pop('text')
+                content['content']['figures'] = content.pop('figures')
+        self.parsed_content = {k: {'topics': v} for k, v in self.parsed_content.items()}
+        for k, v in self.parsed_content.items():
+            v['hidden'] = v['topics'].pop('hidden')
+
+
+    def parse_pdf(self, pdf_path, page_ranges=None):
+        super(TextbookParser, self).parse_pdf(pdf_path, page_ranges)
+        self.restructure_parsed_content(pdf_path)
+        return self.parsed_content
+
+
 class CK12DataSetAssembler(object):
 
     def __init__(self):
@@ -914,18 +953,20 @@ class CK12DataSetAssembler(object):
 
         if fb_keys != wb_keys:
             fb_keys_missing = fb_keys.difference(wb_keys)
-            print 'topic mismatch, attempting to match keys ' + str(fb_keys_missing)
+            print 'topic mismatch, attempting to match keys: ' + str(fb_keys_missing)
             for wb_topic in wb_keys:
                 for fb_topic in fb_keys_missing:
                     char_match = fuzz.ratio(wb_topic, fb_topic)
                     if char_match > self.char_match_thresh:
-                        # print fb_topic
-                        # print wb_topic
-                        # print char_match
                         workbook[fb_topic] = workbook.pop(wb_topic)
         wb_keys = set(workbook.keys())
         assert fb_keys == wb_keys
 
+    def validate_schema(self):
+        pass
+
+    def validate_dataset(self):
+        pass
 
 
 def refine_parsed_quizzes(parsed_quizzes):
