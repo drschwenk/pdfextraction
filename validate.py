@@ -73,6 +73,19 @@ def run_tests():
     with open("categories.json") as f:
         categories = json.loads(f.read())
 
+    for p in glob.glob(shining3Path + "/*.json"):
+        with open(p) as f:
+            j = json.loads(f.read())
+
+        image_name = p.split('/')[2].split('.json')[0]
+        if int(image_name.split('.')[0]) > 1507:
+            try:
+                validator = jsonschema.Draft4Validator(create_schema(j))
+                for error in sorted(validator.iter_errors(j), key=str):
+                    warnings.warn("Error in schema --%s-- for %s" % (error.message, image_name))
+            except jsonschema.ValidationError as e:
+                warnings.warn("Error in schema --%s-- for %s" % (e.message, image_name))
+
     validateDataset('./annotations')
 
 

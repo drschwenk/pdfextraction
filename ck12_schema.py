@@ -11,7 +11,7 @@ ck12_schema = {
                     "type": "object",
                     "additionalProperties": False,
                     "patternProperties": {
-                        "^[A-Za-z\s]+$": {
+                        "^(:?\w*\s?\w*)\.?[\s\w*\s]?[\w\s]+$": {
                             "type": "object",
                             "required": ["content", "orderID"],
                             "additionalProperties": False,

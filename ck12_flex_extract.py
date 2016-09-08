@@ -1,7 +1,8 @@
 import glob
-import string
+import json
 import functools
 import string
+import re
 import pdfparser.poppler as pdf_poppler
 from collections import defaultdict
 from collections import OrderedDict
@@ -9,6 +10,10 @@ from copy import deepcopy
 import PIL.Image as Image
 import numpy as np
 import fuzzywuzzy.fuzz as fuzz
+import jsonschema
+import ck12_schema
+import warnings
+import klepto
 
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdfdocument import PDFDocument
@@ -348,32 +353,39 @@ class FlexbookParser(object):
                           line_margin,
                           word_margin,
                           boxes_flow):
-        laparams = LAParams(line_overlap, char_margin, line_margin, word_margin, boxes_flow)
-        page_layouts = []
-        with open(pdf_file, 'r') as fp:
-            parser = PDFParser(fp)
-            document = PDFDocument(parser)
-            rsrcmgr = PDFResourceManager()
-            device = PDFPageAggregator(rsrcmgr, laparams=laparams)
-            interpreter = PDFPageInterpreter(rsrcmgr, device)
-            for page_n, page in enumerate(PDFPage.create_pages(document)):
-                if not page_range:
-                    interpreter.process_page(page)
-                    layout = device.get_result()
-                    page_layouts.append(layout)
-                elif page_range[0] <= page_n <= page_range[1]:
-                    interpreter.process_page(page)
-                    layout = device.get_result()
-                    page_layouts.append(layout)
-                    if not self.page_vertical_dim:
-                        self.page_vertical_dim = page.mediabox[-1]
+        stored_layouts = klepto.archives.dir_archive('persist_pdf_layouts', serialized=True, cached=False)
+        db_key = pdf_file.split('/')[-1] + '_' + str(page_range[0]) + '_' + str(page_range[1])
+        if db_key in stored_layouts.keys():
+            page_layouts = stored_layouts[db_key]
+        else:
+            laparams = LAParams(line_overlap, char_margin, line_margin, word_margin, boxes_flow)
+            page_layouts = []
+            with open(pdf_file, 'r') as fp:
+                parser = PDFParser(fp)
+                document = PDFDocument(parser)
+                rsrcmgr = PDFResourceManager()
+                device = PDFPageAggregator(rsrcmgr, laparams=laparams)
+                interpreter = PDFPageInterpreter(rsrcmgr, device)
+                for page_n, page in enumerate(PDFPage.create_pages(document)):
+                    if not page_range:
+                        interpreter.process_page(page)
+                        layout = device.get_result()
+                        page_layouts.append(layout)
+                    elif page_range[0] <= page_n <= page_range[1]:
+                        interpreter.process_page(page)
+                        layout = device.get_result()
+                        page_layouts.append(layout)
+                        if not self.page_vertical_dim:
+                            self.page_vertical_dim = page.mediabox[-1]
+            stored_layouts[db_key] = page_layouts
         return page_layouts
+
 
     def parse_pdf(self, file_path, page_ranges=None):
         doc = pdf_poppler.Document(file_path)
         page_layouts = self.make_page_layouts(file_path, page_ranges, word_margin=0.1, line_overlap=0.5,
-
                                               char_margin=2.0, line_margin=0.5, boxes_flow=0.5)
+
         if not page_ranges:
             page_ranges = [0, doc.no_of_pages()]
         for idx, page in enumerate(doc):
@@ -458,7 +470,7 @@ class FlexbookParser(object):
                         continue
                     if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
                         if line_props['font_size'] == self.section_demarcations['lesson_size']:
-                            self.current_lesson = line_props['content']
+                            self.current_lesson = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
                             self.last_figure_caption_seen = None
                             self.current_topic_number = 1
                             self.parsed_content[self.current_lesson]['hidden'] = {"source": str(idx + 2) + '_' + book_name}
@@ -615,6 +627,7 @@ class WorkbookParser(FlexbookParser):
     def parse_answers(self):
         parsed_answer_sections = defaultdict(dict)
         for current_lesson, lesson in self.parsed_content.items():
+            print current_lesson
             for section, content in lesson.items():
                 section_type = section
                 if section_type in self.sections_to_keep:
@@ -643,8 +656,9 @@ class WorkbookParser(FlexbookParser):
 
     @classmethod
     def join_questions_w_answer_keys(cls, parsed_questions, parsed_answers):
-        ans_key_set = set([ts.split(' ')[1] for ts in parsed_answers.keys()])
-        quest_key_set = set([ts.split(' ')[0] for ts in parsed_questions.keys()])
+        ans_key_set = set([re.findall("[1-9]+\.[1-9]+", ts)[0] for ts in parsed_answers.keys()])
+        quest_key_set = set([re.findall("[1-9]+\.[1-9]+", ts)[0] for ts in parsed_questions.keys()])
+
         assert ans_key_set == quest_key_set
         for lesson, sections in parsed_questions.items():
             for section_name, section in sections.items():
@@ -667,9 +681,10 @@ class WorkbookParser(FlexbookParser):
 
         super(WorkbookParser, self).parse_pdf(file_path, answer_pages)
         parsed_answers = self.parse_answers()
-        WorkbookParser.join_questions_w_answer_keys(parsed_questions, parsed_answers)
-        flattened_workbook = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
-        return self.restructure_parsed_content(flattened_workbook)
+        # WorkbookParser.join_questions_w_answer_keys(parsed_questions, parsed_answers)
+        # flattened_workbook = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
+        return parsed_questions, parsed_answers
+        # return self.restructure_parsed_content(flattened_workbook)
 
 
 class WorkbookQuestionParser(QuestionTypeParser):
@@ -940,12 +955,15 @@ class TextbookParser(FlexbookParser):
 class CK12DataSetAssembler(object):
 
     def __init__(self):
+        self.ck12_dataset = None
         self.char_match_thresh = 85
+        self.schema = ck12_schema.ck12_schema
 
     def join_content_and_questions(self, flexbook, workbook):
         self.check_topic_matches(flexbook, workbook)
         joined_flexbook = {k: dict(v, **workbook[k]) for k, v in flexbook.items()}
-        return joined_flexbook
+        self.ck12_dataset = self.jsonify(joined_flexbook)
+        return self.ck12_dataset
 
     def check_topic_matches(self, flexbook, workbook):
         fb_keys = set(flexbook.keys())
@@ -962,11 +980,29 @@ class CK12DataSetAssembler(object):
         wb_keys = set(workbook.keys())
         assert fb_keys == wb_keys
 
-    def validate_schema(self):
-        pass
+    def validate_schema(self, dataset_json):
+        try:
+            validator = jsonschema.Draft4Validator(self.schema)
+            for error in sorted(validator.iter_errors(dataset_json), key=str):
+                print error.message
+        except jsonschema.ValidationError as e:
+            warnings.warn("Error in schema --%s-", e.message)
 
     def validate_dataset(self):
         pass
+
+    def not_empty_test(self):
+        pass
+
+    def multi_choice_test(self):
+        pass
+
+    def jsonify(self, dataset_w_collections):
+        return json.loads(json.dumps(dataset_w_collections))
+
+    def write_file(self):
+        with open('./ck12_dataset_draft_1.json', 'w') as f:
+            json.dump(self.ck12_dataset, f, indent=4, sort_keys=True)
 
 
 def refine_parsed_quizzes(parsed_quizzes):
