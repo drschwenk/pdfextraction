@@ -3,7 +3,7 @@ ck12_schema = {
     "$schema": "http://json-schema.org/draft-04/schema",
     "additionalProperties": False,
     "patternProperties": {
-        "^[\w]+\.?[\w\s]+$": {
+        "^[\w\s]+\.?[\w\s]+$": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
@@ -65,11 +65,11 @@ ck12_schema = {
                                         },
                                         "idStructural": {
                                             "type": ["string", "null"],
-                                            "pattern": "^[1-9](?:\.|\))\s?$"
+                                            "pattern": "^[0-9]+(?:\.|\))\s?$"
                                         },
                                         "type": {
                                             "enum": ["True or False", "Multiple Choice", "Matching",
-                                                     "Fill in the Blank"]
+                                                     "Fill in the Blank", "Short Answer"]
                                         },
                                         "beingAsked": {
                                             "type": "object",

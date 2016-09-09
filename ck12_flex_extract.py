@@ -152,12 +152,12 @@ class QuestionTypeParser(object):
 
     def make_correct_answer(self, box, structural_id):
         question_id = 'q' + str(self.current_question_number).zfill(2)
-        if 'correct_answer' not in self.parsed_questions[question_id].keys():
-            self.parsed_questions[question_id]['correct_answer'] = {}
-            self.parsed_questions[question_id]['correct_answer']['idStructural'] = structural_id
-            self.parsed_questions[question_id]['correct_answer']['processedText'] = box['processedText']
+        if 'correctAnswer' not in self.parsed_questions[question_id].keys():
+            self.parsed_questions[question_id]['correctAnswer'] = {}
+            self.parsed_questions[question_id]['correctAnswer']['idStructural'] = structural_id
+            self.parsed_questions[question_id]['correctAnswer']['processedText'] = box['processedText']
         else:
-            self.parsed_questions[question_id]['correct_answer']['processedText'] += ' ' + box['processedText']
+            self.parsed_questions[question_id]['correctAnswer']['processedText'] += ' ' + box['processedText']
         self.last_added_depth = 2
 
     def scan_boxes(self, text_boxes):
@@ -238,7 +238,6 @@ class CK12QuizParser(object):
                     line_props['rectangle'][3] += self.page_dim * page_n
                     if self.check_color(line_props) == 'title_color':
                         title_line_text = line_props['processedText']
-
                         for sw in self.stop_words['titles']:
                             title_line_text = title_line_text.replace(sw, '')
                         title_text += title_line_text
@@ -251,22 +250,22 @@ class CK12QuizParser(object):
     def classify_question(self, parsed_question):
         q_type = 'None'
         if 'true or false' in parsed_question['beingAsked']['processedText']:
-            q_type = 'True/False'
+            q_type = 'True or False'
             parsed_question['beingAsked']['processedText'] = \
                 parsed_question['beingAsked']['processedText'].replace('true or false: ', '')
         if '____' in parsed_question['beingAsked']['processedText'] and q_type == 'None':
-            q_type = 'Fill-in-the-Blank'
+            q_type = 'Fill in the Blank'
         if parsed_question['beingAsked'] and 'answerChoices' not in parsed_question.keys() and q_type == 'None':
             q_type = 'Short Answer'
         if 'answerChoices' in parsed_question.keys() and len(parsed_question['answerChoices']) == 4:
             q_type = 'Multiple Choice'
         if 'answerChoices' in parsed_question.keys() and len(parsed_question['answerChoices']) == 2:
-            q_type = 'True/False'
+            q_type = 'True or False'
         return q_type
 
     @classmethod
     def sanitize_parsed_quiz(cls, question):
-        q_components = [question['beingAsked']] + [question['correct_answer']]
+        q_components = [question['beingAsked']] + [question['correctAnswer']]
         pck = 'processedText'
         sik = 'idStructural'
         for component in q_components:
@@ -286,31 +285,33 @@ class CK12QuizParser(object):
 
         if 'idStructural' in question['beingAsked'].keys():
             del question['beingAsked']['idStructural']
+        if 'idStructural' in question['correctAnswer'].keys():
+            del question['correctAnswer']['idStructural']
 
     def refine_parsed_page(self, parsed_page):
         for qid, question in parsed_page['nonDiagramQuestions'].items():
             question['type'] = self.classify_question(question)
-            if 'correct_answer' not in question.keys() and 'answerChoices' in question.keys():
-                question['correct_answer'] = {}
+            if 'correctAnswer' not in question.keys() and 'answerChoices' in question.keys():
+                question['correctAnswer'] = {}
                 for ac_id, answer_choice in question['answerChoices'].items():
                     if answer_choice['correct']:
-                        question['correct_answer']['idStructural'] = answer_choice['idStructural']
-                        question['correct_answer']['processedText'] = answer_choice['processedText']
-            if 'answerChoices' not in question.keys() and question['type'] == 'True/False':
+                        question['correctAnswer']['idStructural'] = answer_choice['idStructural']
+                        question['correctAnswer']['processedText'] = answer_choice['processedText']
+            if 'answerChoices' not in question.keys() and question['type'] == 'True or False':
                 question['answerChoices'] = {
                     'a': {
-                        'idStructural': 'a',
+                        'idStructural': 'a.',
                         'processedText': 'true',
                         'rawText': 'a. true'
                         },
                     'b': {
-                        'idStructural': 'b',
+                        'idStructural': 'b.',
                         'processedText': 'false',
                         'rawText': 'b. false'
                         }
                 }
-            if 'correct_answer' not in question.keys():
-                question['correct_answer'] = '_MISSING_'
+            if 'correctAnswer' not in question.keys():
+                question['correctAnswer'] = '_MISSING_'
 
             CK12QuizParser.sanitize_parsed_quiz(question)
         del parsed_page['title']
@@ -1057,6 +1058,9 @@ class CK12DataSetAssembler(object):
                     for fb_topic in fb_keys_missing:
                         char_match = fuzz.ratio(wb_topic, fb_topic)
                         if char_match > self.char_match_thresh:
+                            if wb_topic in ['oceancontinent convergent plate boundaries', 'oceanocean convergent plate boundaries',
+                                            'continentcontinent convergent plate boundaries']:
+                                continue
                             workbook[fb_topic] = workbook.pop(wb_topic)
 
         wb_keys = set(workbook.keys())
@@ -1117,7 +1121,7 @@ def simple_quiz_parser_test(parsed_quizzes):
             if quest['type'] == 'Multiple Choice':
                 if len(quest['answerChoices']) != 4:
                     print quiz_n + ' mc error'
-            if quest['type'] == 'True/False':
+            if quest['type'] == 'True or False':
                 if len(quest['answerChoices']) != 2:
                     print quiz_n + ' tf error'
 
