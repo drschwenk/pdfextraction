@@ -978,7 +978,7 @@ class LessonParser(TextbookParser):
                         continue
                     # print line_props
                     if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
-                        if line_props['font_size'] == self.section_demarcations['lesson_size']:
+                        if line_props['font_size'] >= self.section_demarcations['lesson_size']:
                             self.current_lesson = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
                             self.last_figure_caption_seen = None
                             self.current_topic_number = 1
@@ -1027,6 +1027,12 @@ class CK12DataSetAssembler(object):
         self.ck12_dataset = self.jsonify(joined_flexbook)
         return self.ck12_dataset
 
+    def handle_special_cases(self, key):
+        if key == 'three rnas':
+            return 'rna'
+        else:
+            return None
+
     def check_and_match_topics(self, flexbook, workbook):
         fb_keys = set(flexbook.keys())
         wb_keys = set(workbook.keys())
@@ -1052,9 +1058,24 @@ class CK12DataSetAssembler(object):
                             workbook[fb_topic] = workbook.pop(wb_topic)
 
         wb_keys = set(workbook.keys())
-        # fb_keys_missing = fb_keys.difference(wb_keys)
-        # print fb_keys_missing
-        assert fb_keys == wb_keys
+        fb_keys_missing = fb_keys.difference(wb_keys)
+        print
+        print fb_keys_missing
+        if fb_keys != wb_keys:
+            for wb_topic in wb_keys:
+                for fb_topic in fb_keys_missing:
+                    special_fix = self.handle_special_cases(wb_topic)
+                    if special_fix == fb_topic:
+                        workbook[special_fix] = workbook.pop(wb_topic)
+            wb_keys = set(workbook.keys())
+            fb_keys_missing = fb_keys.difference(wb_keys)
+            print fb_keys_missing
+            if fb_keys != wb_keys:
+                for fb_topic in fb_keys_missing:
+                    print 'removing ' + fb_topic
+                    flexbook.pop(fb_topic)
+        # assert fb_keys == wb_keys
+
 
     def validate_schema(self, dataset_json):
         try:
