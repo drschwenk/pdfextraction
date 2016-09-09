@@ -355,7 +355,7 @@ class FlexbookParser(object):
                           boxes_flow):
         stored_layouts = klepto.archives.dir_archive('persist_pdf_layouts', serialized=True, cached=False)
         db_key = pdf_file.split('/')[-1] + '_' + str(page_range[0]) + '_' + str(page_range[1])
-        if db_key in stored_layouts.keys():
+        if db_key in stored_layouts.keys() and False:
             page_layouts = stored_layouts[db_key]
         else:
             laparams = LAParams(line_overlap, char_margin, line_margin, word_margin, boxes_flow)
@@ -380,8 +380,7 @@ class FlexbookParser(object):
             stored_layouts[db_key] = page_layouts
         return page_layouts
 
-
-    def parse_pdf(self, file_path, page_ranges=None):
+    def parse_pdf(self, file_path, page_ranges=None, extracting_answer_key=False):
         doc = pdf_poppler.Document(file_path)
         page_layouts = self.make_page_layouts(file_path, page_ranges, word_margin=0.1, line_overlap=0.5,
                                               char_margin=2.0, line_margin=0.5, boxes_flow=0.5)
@@ -394,13 +393,14 @@ class FlexbookParser(object):
                 for layout_ob in page_layouts[idx - page_ranges[0]]:
                     if isinstance(layout_ob, LTFigure):
                         page_figures.append(layout_ob.bbox)
-                self.extract_page_text(idx, page, page_figures, file_path.split('/')[-1])
+                self.extract_page_text(idx, page, page_figures, file_path.split('/')[-1], extracting_answer_key)
         return self.filter_categories()
 
     def filter_categories(self):
         for k, v in self.parsed_content.items():
             if k.split(' ')[-1] in self.sections_to_ignore:
                 del self.parsed_content[k]
+        return self.parsed_content
 
     def crop_and_extract_figure(self, page_n, fig_n, rectangle, extract_images=False):
         page_image_filename = 'pg_' + str(page_n + 1).zfill(4) + '.pdf.png'
@@ -456,7 +456,7 @@ class FlexbookParser(object):
         else:
             return False
 
-    def extract_page_text(self, idx, page, page_figures, book_name):
+    def extract_page_text(self, idx, page, page_figures, book_name, extracting_answer_key):
         for flow in page:
             for block in flow:
                 for line in block:
@@ -503,60 +503,6 @@ class FlexbookParser(object):
                                     self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.line_separator
 
 
-class GradeSchoolFlexbookParser(FlexbookParser):
-    def __init__(self, rasterized_pages_dir=None, figure_dest_dir=None):
-        super(GradeSchoolFlexbookParser, self).__init__(rasterized_pages_dir, figure_dest_dir)
-        self.line_sep_tol = 10
-        self.section_demarcations = {
-            'topic_color': (0.811767578125, 0.3411712646484375, 0.149017333984375),
-            'lesson_size': 22.3082,
-            'topic_size': 10.7596
-        }
-
-    def extract_page_text(self, idx, page, page_figures, book_name):
-        for flow in page:
-            for block in flow:
-                for line in block:
-                    line_props = {
-                        'content': self.normalize_text(line.text),
-                        'rectangle': line.bbox.as_tuple(),
-                        'font_size': list(line.char_fonts)[0].size,
-                        'font_color': list(line.char_fonts)[0].color.as_tuple()
-                    }
-                    if 760 < line_props['rectangle'][3] or line_props['rectangle'][3] < 50 or not line_props['content']:
-                        continue
-                    if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
-                        if line_props['font_size'] == self.section_demarcations['lesson_size']:
-                            self.current_lesson = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
-                            self.last_figure_caption_seen = None
-
-                        elif 'FIGURE ' in line_props['content']:
-                            figure_number = line_props['content'].replace('FIGURE ', '')
-                            new_figure_content = {}
-                            new_figure_content['caption'] = line_props['content']
-                            self.last_figure_caption_seen = line_props
-                            nearest_image_bbox = self.find_matching_image(line_props['rectangle'], page_figures)
-                            new_figure_content['rectangle'] = nearest_image_bbox
-                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox)
-                            new_figure_content['file_name'] = figure_file_name
-                            self.parsed_content[self.current_lesson][self.current_topic]['figures'].append(new_figure_content)
-
-                        elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min() \
-                                or line_props['font_size'] == self.section_demarcations['topic_size']:
-                            self.current_topic = line_props['content']
-                            self.last_figure_caption_seen = None
-                            self.parsed_content[self.current_lesson][self.current_topic]['text'].append('')
-
-                        elif not sum(line_props['font_color']) and self.current_topic:
-                            if self.current_topic in self.treat_as_list:
-                                self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.list_separator
-                            else:
-                                if self.near_last_figure_caption(line_props):
-                                    self.parsed_content[self.current_lesson][self.current_topic]['figures'][-1]['caption'] += self.line_separator + line_props['content']
-                                elif self.parsed_content[self.current_lesson][self.current_topic]['text']:
-                                    self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.line_separator
-
-
 class WorkbookParser(FlexbookParser):
     def __init__(self):
         super(WorkbookParser, self).__init__()
@@ -571,7 +517,7 @@ class WorkbookParser(FlexbookParser):
         self.line_separator = '\n'
         self.wb_q_parser = WorkbookQuestionParser
 
-    def extract_page_text(self, idx, page, page_figures, book_name):
+    def extract_page_text(self, idx, page, page_figures, book_name, extracting_ans_key):
         for flow in page:
             for block in flow:
                 for line in block:
@@ -590,11 +536,12 @@ class WorkbookParser(FlexbookParser):
                             self.last_figure_caption_seen = None
                             self.current_topic_number = 1
                         elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min():
-                            if line_props['font_size'] == self.section_demarcations['answer_lesson_size'] and \
-                                    self.section_demarcations['ak_str'] in line_props['content']:
-                                self.current_lesson = line_props['content'].replace(self.section_demarcations['ak_str'], '')
-                                self.last_figure_caption_seen = None
-                                self.current_topic_number = 1
+                            if line_props['font_size'] == self.section_demarcations['answer_lesson_size'] and extracting_ans_key:
+                                found_lesson_number = re.findall("Lesson [0-9]+\.[1-9]+", line_props['content'])
+                                if found_lesson_number:
+                                    self.current_lesson = found_lesson_number[0]
+                                    self.last_figure_caption_seen = None
+                                    self.current_topic_number = 1
 
                             else:
                                 self.current_topic = line_props['content']
@@ -627,7 +574,6 @@ class WorkbookParser(FlexbookParser):
     def parse_answers(self):
         parsed_answer_sections = defaultdict(dict)
         for current_lesson, lesson in self.parsed_content.items():
-            print current_lesson
             for section, content in lesson.items():
                 section_type = section
                 if section_type in self.sections_to_keep:
@@ -656,8 +602,8 @@ class WorkbookParser(FlexbookParser):
 
     @classmethod
     def join_questions_w_answer_keys(cls, parsed_questions, parsed_answers):
-        ans_key_set = set([re.findall("[1-9]+\.[1-9]+", ts)[0] for ts in parsed_answers.keys()])
-        quest_key_set = set([re.findall("[1-9]+\.[1-9]+", ts)[0] for ts in parsed_questions.keys()])
+        ans_key_set = set([re.findall("[0-9]+\.[1-9]+", ts)[0] for ts in parsed_answers.keys()])
+        quest_key_set = set([re.findall("[0-9]+\.[1-9]+", ts)[0] for ts in parsed_questions.keys()])
 
         assert ans_key_set == quest_key_set
         for lesson, sections in parsed_questions.items():
@@ -667,6 +613,7 @@ class WorkbookParser(FlexbookParser):
                     try:
                         question['correctAnswer'] = parsed_answers[lesson_n][q_type][q_id]['correctAnswer']
                     except KeyError as e:
+                        pass
                         print e
                         print lesson_n, q_type
 
@@ -679,12 +626,12 @@ class WorkbookParser(FlexbookParser):
 
         self.reset_flex_parser()
 
-        super(WorkbookParser, self).parse_pdf(file_path, answer_pages)
+        super(WorkbookParser, self).parse_pdf(file_path, answer_pages, True)
         parsed_answers = self.parse_answers()
-        # WorkbookParser.join_questions_w_answer_keys(parsed_questions, parsed_answers)
-        # flattened_workbook = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
-        return parsed_questions, parsed_answers
-        # return self.restructure_parsed_content(flattened_workbook)
+        WorkbookParser.join_questions_w_answer_keys(parsed_questions, parsed_answers)
+        flattened_workbook = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
+        # return parsed_questions, parsed_answers
+        return self.restructure_parsed_content(flattened_workbook)
 
 
 class WorkbookQuestionParser(QuestionTypeParser):
@@ -945,11 +892,126 @@ class TextbookParser(FlexbookParser):
         for k, v in self.parsed_content.items():
             v['hidden'] = v['topics'].pop('hidden')
 
-
     def parse_pdf(self, pdf_path, page_ranges=None):
         super(TextbookParser, self).parse_pdf(pdf_path, page_ranges)
         self.restructure_parsed_content(pdf_path)
         return self.parsed_content
+
+
+class GradeSchoolFlexbookParser(TextbookParser):
+    def __init__(self, rasterized_pages_dir=None, figure_dest_dir=None):
+        super(GradeSchoolFlexbookParser, self).__init__(rasterized_pages_dir, figure_dest_dir)
+        self.line_sep_tol = 10
+        self.section_demarcations = {
+            'topic_color': (0.811767578125, 0.3411712646484375, 0.149017333984375),
+            'lesson_size': 22.3082,
+            'topic_size': 10.7596
+        }
+
+    def extract_page_text(self, idx, page, page_figures, book_name, extracting_answer_key):
+        for flow in page:
+            for block in flow:
+                for line in block:
+                    line_props = {
+                        'content': self.normalize_text(line.text),
+                        'rectangle': line.bbox.as_tuple(),
+                        'font_size': list(line.char_fonts)[0].size,
+                        'font_color': list(line.char_fonts)[0].color.as_tuple()
+                    }
+                    if 760 < line_props['rectangle'][3] or line_props['rectangle'][3] < 50 or not line_props['content']:
+                        continue
+                    # print line_props
+                    if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
+                        if line_props['font_size'] == self.section_demarcations['lesson_size']:
+                            self.current_lesson = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
+                            self.last_figure_caption_seen = None
+
+                        elif 'FIGURE ' in line_props['content']:
+                            figure_number = line_props['content'].replace('FIGURE ', '')
+                            new_figure_content = {}
+                            new_figure_content['caption'] = line_props['content']
+                            self.last_figure_caption_seen = line_props
+                            nearest_image_bbox = self.find_matching_image(line_props['rectangle'], page_figures)
+                            new_figure_content['rectangle'] = nearest_image_bbox
+                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox)
+                            new_figure_content['file_name'] = figure_file_name
+                            self.parsed_content[self.current_lesson][self.current_topic]['figures'].append(new_figure_content)
+
+                        elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min() \
+                                or line_props['font_size'] == self.section_demarcations['topic_size']:
+                            self.current_topic = line_props['content']
+                            self.last_figure_caption_seen = None
+                            self.parsed_content[self.current_lesson][self.current_topic]['text'].append('')
+
+                        elif not sum(line_props['font_color']) and self.current_topic:
+                            if self.current_topic in self.treat_as_list:
+                                self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.list_separator
+                            else:
+                                if self.near_last_figure_caption(line_props):
+                                    self.parsed_content[self.current_lesson][self.current_topic]['figures'][-1]['caption'] += self.line_separator + line_props['content']
+                                elif self.parsed_content[self.current_lesson][self.current_topic]['text']:
+                                    self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.line_separator
+
+
+class LessonParser(TextbookParser):
+
+    def __init__(self, overlap_tol=None, blank_threshold=None):
+        super(LessonParser, self).__init__(overlap_tol, blank_threshold)
+        self.section_demarcations = {
+            'topic_color': (0.811767578125, 0.3411712646484375, 0.149017333984375),
+            'lesson_size': 26.8989,
+            'topic_size': 10.7596
+        }
+        self.strings_to_ignore.append('MEDIA')
+
+    def extract_page_text(self, idx, page, page_figures, book_name, extracting_answer_key):
+        for flow in page:
+            for block in flow:
+                for line in block:
+                    line_props = {
+                        'content': self.normalize_text(line.text),
+                        'rectangle': line.bbox.as_tuple(),
+                        'font_size': list(line.char_fonts)[0].size,
+                        'font_color': list(line.char_fonts)[0].color.as_tuple()
+                    }
+                    if 760 < line_props['rectangle'][3] or line_props['rectangle'][3] < 50 or not line_props['content']:
+                        continue
+                    # print line_props
+                    if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
+                        if line_props['font_size'] == self.section_demarcations['lesson_size']:
+                            self.current_lesson = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
+                            self.last_figure_caption_seen = None
+                            self.current_topic_number = 1
+                            self.parsed_content[self.current_lesson]['hidden'] = {"source": str(idx + 2) + '_' + book_name}
+
+                        elif 'FIGURE ' in line_props['content']:
+                            figure_number = line_props['content'].replace('FIGURE ', '')
+                            new_figure_content = {}
+                            new_figure_content['caption'] = line_props['content']
+                            self.last_figure_caption_seen = line_props
+                            nearest_image_bbox = self.find_matching_image(line_props['rectangle'], page_figures)
+                            new_figure_content['rectangle'] = nearest_image_bbox
+                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox)
+                            new_figure_content['file_name'] = figure_file_name
+                            self.parsed_content[self.current_lesson][self.current_topic]['figures'].append(new_figure_content)
+
+                        elif np.isclose(line_props['font_color'], self.section_demarcations['topic_color'], rtol=1e-04, atol=1e-04).min() \
+                                or line_props['font_size'] == self.section_demarcations['topic_size']:
+                            self.current_topic = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
+                            self.parsed_content[self.current_lesson][self.current_topic]['orderID'] = \
+                                't_' + str(self.current_topic_number).zfill(2)
+                            self.last_figure_caption_seen = None
+                            self.current_topic_number += 1
+                            self.parsed_content[self.current_lesson][self.current_topic]['text'].append('')
+
+                        elif not sum(line_props['font_color']) and self.current_topic:
+                            if self.current_topic in self.treat_as_list:
+                                self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.list_separator
+                            else:
+                                if self.near_last_figure_caption(line_props):
+                                    self.parsed_content[self.current_lesson][self.current_topic]['figures'][-1]['caption'] += self.line_separator + line_props['content']
+                                elif self.parsed_content[self.current_lesson][self.current_topic]['text']:
+                                    self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.line_separator
 
 
 class CK12DataSetAssembler(object):
@@ -960,24 +1022,38 @@ class CK12DataSetAssembler(object):
         self.schema = ck12_schema.ck12_schema
 
     def join_content_and_questions(self, flexbook, workbook):
-        self.check_topic_matches(flexbook, workbook)
+        self.check_and_match_topics(flexbook, workbook)
         joined_flexbook = {k: dict(v, **workbook[k]) for k, v in flexbook.items()}
         self.ck12_dataset = self.jsonify(joined_flexbook)
         return self.ck12_dataset
 
-    def check_topic_matches(self, flexbook, workbook):
+    def check_and_match_topics(self, flexbook, workbook):
         fb_keys = set(flexbook.keys())
         wb_keys = set(workbook.keys())
 
         if fb_keys != wb_keys:
             fb_keys_missing = fb_keys.difference(wb_keys)
             print 'topic mismatch, attempting to match keys: ' + str(fb_keys_missing)
-            for wb_topic in wb_keys:
-                for fb_topic in fb_keys_missing:
-                    char_match = fuzz.ratio(wb_topic, fb_topic)
-                    if char_match > self.char_match_thresh:
-                        workbook[fb_topic] = workbook.pop(wb_topic)
+            if list(fb_keys)[0][0].isdigit() and list(wb_keys)[0][0].isdigit():
+                print 'by number'
+                for wb_topic in wb_keys:
+                    for fb_topic in fb_keys_missing:
+                        wb_lesson_number = re.findall("[0-9]+\.[1-9]+", wb_topic)[0]
+                        fb_lesson_number = re.findall("[0-9]+\.[1-9]+", fb_topic)[0]
+                        if wb_lesson_number == fb_lesson_number:
+                            workbook[fb_topic] = workbook.pop(wb_topic)
+
+            else:
+                print 'by title'
+                for wb_topic in wb_keys:
+                    for fb_topic in fb_keys_missing:
+                        char_match = fuzz.ratio(wb_topic, fb_topic)
+                        if char_match > self.char_match_thresh:
+                            workbook[fb_topic] = workbook.pop(wb_topic)
+
         wb_keys = set(workbook.keys())
+        # fb_keys_missing = fb_keys.difference(wb_keys)
+        # print fb_keys_missing
         assert fb_keys == wb_keys
 
     def validate_schema(self, dataset_json):
@@ -987,6 +1063,7 @@ class CK12DataSetAssembler(object):
                 print error.message
         except jsonschema.ValidationError as e:
             warnings.warn("Error in schema --%s-", e.message)
+
 
     def validate_dataset(self):
         pass
