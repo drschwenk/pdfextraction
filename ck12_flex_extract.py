@@ -313,6 +313,8 @@ class CK12QuizParser(object):
                 question['correct_answer'] = '_MISSING_'
 
             CK12QuizParser.sanitize_parsed_quiz(question)
+        del parsed_page['title']
+        parsed_page['questions'] = {'nonDiagramQuestions': parsed_page.pop('nonDiagramQuestions'), 'diagramQuestions': {}}
 
 
 class FlexbookParser(object):
@@ -1111,16 +1113,13 @@ def refine_parsed_quizzes(parsed_quizzes):
 
 def simple_quiz_parser_test(parsed_quizzes):
     for quiz_n, quiz in parsed_quizzes.items():
-        for qid, quest in quiz['nonDiagramQuestions'].items():
+        for qid, quest in quiz['questions']['nonDiagramQuestions'].items():
             if quest['type'] == 'Multiple Choice':
                 if len(quest['answerChoices']) != 4:
                     print quiz_n + ' mc error'
             if quest['type'] == 'True/False':
                 if len(quest['answerChoices']) != 2:
                     print quiz_n + ' tf error'
-            # if quest['type'] in ['Short Answer', 'Fill-in-the-Blank']:
-            #     if 'answerChoices' in quest.keys():
-            #         print quiz_n + ' sa or fib error'
 
 
 def parse_pdf_collection(pdf_dir):
@@ -1134,4 +1133,6 @@ def parse_pdf_collection(pdf_dir):
             quiz_content[parsed_quiz['title']] = parsed_quiz
         except (IndexError, KeyError) as e:
             print pdf_file
-    return quiz_content
+    refined_parsed_content = deepcopy(quiz_content)
+    refine_parsed_quizzes(refined_parsed_content)
+    return refined_parsed_content
