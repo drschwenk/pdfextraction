@@ -144,7 +144,8 @@ def accept_hits(mturk_connection, assignments_to_approve):
         if assignment.AssignmentStatus == 'Submitted':
             mturk_connection.approve_assignment(assignment.AssignmentId)
         else:
-            print(assignment.AssignmentStatus)
+            pass
+            # print(assignment.AssignmentStatus)
 
 
 def match_workers_assignments(worker_list, worker_result_df):

@@ -79,7 +79,8 @@ ck12_schema = {
                                                     "type": "string"
                                                 },
                                                 "processedText": {
-                                                    "type": "string"
+                                                    "type": "string",
+                                                    "minLength": 3
                                                 }
                                             }
                                         },
@@ -91,7 +92,8 @@ ck12_schema = {
                                                     "type": "string"
                                                 },
                                                 "processedText": {
-                                                    "type": "string"
+                                                    "type": "string",
+                                                    "minLength": 1
                                                 }
                                             }
                                         },
@@ -113,6 +115,7 @@ ck12_schema = {
                                                         },
                                                         "processedText": {
                                                             "type": ["string", "null"],
+                                                            "minLength": 1
                                                         }
                                                     }
                                                 }

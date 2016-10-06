@@ -326,9 +326,9 @@ class FlexbookParser(object):
         self.current_topic_number = 1
         self.parsed_content = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         self.last_figure_caption_seen = None
-        self.sections_to_ignore = ['References']
+        self.sections_to_ignore = ['References', 'Lesson Review Questions']
         self.captions_starters = ['MEDIA ', 'FIGURE ']
-        self.treat_as_list = ['Lesson Vocabulary', 'Lesson Objectives']
+        self.treat_as_list = ['Lesson Vocabulary', 'Lesson Objectives', 'Vocabulary']
         self.strings_to_ignore = ['www.ck12.org']
         self.line_sep_tol = 6
         self.list_separator = '\n'
@@ -358,6 +358,7 @@ class FlexbookParser(object):
                           boxes_flow):
         stored_layouts = klepto.archives.dir_archive('persist_pdf_layouts', serialized=True, cached=False)
         db_key = pdf_file.split('/')[-1] + '_' + str(page_range[0]) + '_' + str(page_range[1])
+        #this will break image size when extracting figs
         if db_key in stored_layouts.keys() and False:
             page_layouts = stored_layouts[db_key]
         else:
@@ -403,6 +404,9 @@ class FlexbookParser(object):
         for k, v in self.parsed_content.items():
             if k.split(' ')[-1] in self.sections_to_ignore:
                 del self.parsed_content[k]
+            for topic in v.keys():
+                if topic in self.sections_to_ignore:
+                    del v[topic]
         return self.parsed_content
 
     def crop_and_extract_figure(self, page_n, fig_n, rectangle, extract_images=False):
@@ -492,7 +496,7 @@ class FlexbookParser(object):
                             self.last_figure_caption_seen = line_props
                             nearest_image_bbox = self.find_matching_image(line_props['rectangle'], page_figures)
                             new_figure_content['rectangle'] = nearest_image_bbox
-                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox)
+                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox, True)
                             new_figure_content['file_name'] = figure_file_name
                             self.parsed_content[self.current_lesson][self.current_topic]['figures'].append(new_figure_content)
 
@@ -786,6 +790,7 @@ class TrueFalseParser(WorkbookQuestionParser):
         for line in lines:
             if line in self.strings_to_ignore:
                 continue
+            line = line.replace('_____ ', '').replace('__ ', '')
             start_type, starting_chars = self.check_starting_chars(line)
             if start_type in ['numeric start']:
                 questions.append(line)
@@ -840,6 +845,7 @@ class MatchingParser(WorkbookQuestionParser):
         for line in lines:
             if line in self.strings_to_ignore:
                 continue
+            line = line.replace('_____ ', '').replace('__ ', '')
             start_type, starting_chars = self.check_starting_chars(line)
             if start_type in ['numeric start', 'letter start']:
                 questions.append(line)
@@ -1092,8 +1098,29 @@ class CK12DataSetAssembler(object):
             warnings.warn("Error in schema --%s-", e.message)
 
 
-    def validate_dataset(self):
-        pass
+    def validate_dataset(self, dataset_json):
+        for subject, flexbook in dataset_json.items():
+            print 'validating schema for ' + str(subject)
+            print '\n'
+            self.validate_schema(flexbook)
+            print '\n' * 2
+            print 'checking answer choice counts'
+            for lesson_name, lesson in flexbook.items():
+                pass
+                self.check_ac_counts(lesson, subject, lesson_name)
+
+    def check_ac_counts(self, lesson_content, subject, lesson_name):
+            for qid, question in lesson_content['questions']['nonDiagramQuestions'].items():
+                if question['type'] == 'Multiple Choice':
+                    if len(question['answerChoices']) != 4:
+                        print subject, lesson_name
+                        print qid + ' mc error'
+                if question['type'] == 'True or False':
+                    if len(question['answerChoices']) != 2:
+                        print subject, lesson_name
+                        print qid + ' tf error'
+
+
 
     def not_empty_test(self):
         pass
@@ -1109,21 +1136,48 @@ class CK12DataSetAssembler(object):
             json.dump(self.ck12_dataset, f, indent=4, sort_keys=True)
 
 
+class VocabDefinitionParser(FlexbookParser):
+
+    def __init__(self, rasterized_pages_dir=None, figure_dest_dir=None):
+        super(VocabDefinitionParser, self).__init__(rasterized_pages_dir, figure_dest_dir)
+        self.line_sep_tol = 10
+        self.current_word = None
+        self.parsed_content = defaultdict(str)
+        self.section_demarcations = {
+            'vocab_size': 10.9091,
+            'indent_thresh': 60
+        }
+
+    def match_word_to_def(self):
+        pass
+
+    def extract_page_text(self, idx, page, page_figures, book_name, extracting_answer_key):
+        for flow in page:
+            for block in flow:
+                for line in block:
+                    line_props = {
+                        'content': self.normalize_text(line.text),
+                        'rectangle': line.bbox.as_tuple(),
+                        'font_size': list(line.char_fonts)[0].size,
+                        'font_color': list(line.char_fonts)[0].color.as_tuple()
+                    }
+                    if 760 < line_props['rectangle'][3] or line_props['rectangle'][3] < 50 or not line_props['content']:
+                        continue
+                    # print line_props
+                    if line_props['content'] and line_props['font_size'] == self.section_demarcations['vocab_size']:
+                            if line_props['rectangle'][0] < self.section_demarcations['indent_thresh']:
+                                self.current_word = line_props['content']
+                            elif self.current_word:
+                                self.parsed_content[self.current_word] += line_props['content'] + self.line_separator
+
+    def filter_categories(self):
+        return self.parsed_content
+
+
 def refine_parsed_quizzes(parsed_quizzes):
     quiz_parser = CK12QuizParser()
     for quiz in parsed_quizzes.values():
         quiz_parser.refine_parsed_page(quiz)
-
-
-def simple_quiz_parser_test(parsed_quizzes):
-    for quiz_n, quiz in parsed_quizzes.items():
-        for qid, quest in quiz['questions']['nonDiagramQuestions'].items():
-            if quest['type'] == 'Multiple Choice':
-                if len(quest['answerChoices']) != 4:
-                    print quiz_n + ' mc error'
-            if quest['type'] == 'True or False':
-                if len(quest['answerChoices']) != 2:
-                    print quiz_n + ' tf error'
 
 
 def parse_pdf_collection(pdf_dir):
