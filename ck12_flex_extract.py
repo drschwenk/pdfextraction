@@ -891,6 +891,8 @@ class QuizTestParser(WorkbookParser):
         self.answer_sections = ['Answer Key']
         self.line_separator = '\n'
         self.wb_q_parser = WorkbookQuestionParser
+        self.numeric_starters = [str(n) + '.' for n in range(41)]
+        self.numeric_starters += [str(n) + ')' for n in range(41)]
 
     def extract_page_text(self, idx, page, page_figures, book_name, extracting_ans_key):
         for flow in page:
@@ -932,64 +934,69 @@ class QuizTestParser(WorkbookParser):
 
     def parse_quiz_pdf(self, file_path, question_pages, answer_pages):
         super(WorkbookParser, self).parse_pdf(file_path, question_pages)
-        parsed_questions = self.parse_questions()
+        parsed_questions, parsed_answers = self.parse_questions_and_answers()
 
         # self.reset_flex_parser()
 
-        # super(WorkbookParser, self).parse_pdf(file_path, answer_pages, True)
-        # parsed_answers = self.parse_answers()
-        # WorkbookParser.join_questions_w_answer_keys(parsed_questions, parsed_answers)
-        # flattened_workbook = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
-        # return parsed_questions, parsed_answers
-        # return self.restructure_parsed_content(flattened_workbook)
-        return parsed_questions
+        self.join_questions_w_answer_keys(parsed_questions, parsed_answers)
+        flattened_workbook = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
+        return self.restructure_parsed_content(flattened_workbook)
 
-    def parse_answers(self):
-        parsed_answer_sections = defaultdict(dict)
-        for current_lesson, lesson in self.parsed_content.items():
-            for section, content in lesson.items():
-                section_type = section
-                if section_type in self.sections_to_keep:
-                    concat_content_str = ' '.join(content['text'])
-                    answer_section_parser = self.wb_q_parser.get_type_specific_parser(section_type, True)
-                    initial_parse = answer_section_parser.assemble_section(concat_content_str)
-                    answer_section_parser.scan_answer_lines(initial_parse)
-                    answer_section_parser.format_correct_answers(section_type)
-                    parsed_answer_sections[current_lesson][section] = answer_section_parser.parsed_questions
-        return parsed_answer_sections
+    def parse_answer_key_string(self, concat_section_string):
+        parsed_answers = defaultdict(dict)
+        current_q_number = None
+        for text_bit in concat_section_string.replace(self.line_separator, ' ').split():
+            if text_bit in self.numeric_starters:
+                current_q_number = text_bit
+            else:
+                parsed_answers[current_q_number] = text_bit
+        return parsed_answers
 
-    def parse_questions(self):
+    def parse_questions_and_answers(self):
         parsed_question_sections = {}
+        parsed_answer_sections = {}
         for k, v in self.parsed_content.items():
             parsed_question_sections[k] = {}
+            parsed_answer_sections[k] = {}
             for section, content in v.items():
-                if section in self.question_sections:
-                    pass
-                else:
-                    continue
                 concat_content_str = ' '.join(content['text'])
                 content_lines = concat_content_str.split(self.line_separator)
-                questions_by_type = defaultdict(list)
-                current_q_type = 'orphaned'
-                for text_line in content_lines:
-                    if text_line in self.strings_to_ignore + self.sections_to_ignore:
-                        current_q_type = 'orphaned'
-                        continue
-                    elif text_line in self.sections_to_keep:
-                        current_q_type = text_line
-                    else:
-                        questions_by_type[current_q_type].append(text_line)
-                del questions_by_type['orphaned']
-                for section_type, q_sect in questions_by_type.items():
-                    concat_content_str = self.line_separator.join(q_sect)
-                    question_section_parser = self.wb_q_parser.get_type_specific_parser(section_type)
-                    initial_parse = question_section_parser.assemble_section(concat_content_str)
-                    question_section_parser.scan_lines(initial_parse)
-                    question_section_parser.format_questions(section_type)
-                    parsed_question_sections[k][section_type] = question_section_parser.parsed_questions
-        # return dict(questions_by_type)
-        return parsed_question_sections
+                if section in self.question_sections:
+                    questions_by_type = defaultdict(list)
+                    current_q_type = 'orphaned'
+                    for text_line in content_lines:
+                        if text_line in self.strings_to_ignore + self.sections_to_ignore:
+                            current_q_type = 'orphaned'
+                            continue
+                        elif text_line in self.sections_to_keep:
+                            current_q_type = text_line
+                        else:
+                            questions_by_type[current_q_type].append(text_line)
+                    del questions_by_type['orphaned']
+                    for section_type, q_sect in questions_by_type.items():
+                        concat_content_str = self.line_separator.join(q_sect)
+                        question_section_parser = self.wb_q_parser.get_type_specific_parser(section_type)
+                        initial_parse = question_section_parser.assemble_section(concat_content_str)
+                        question_section_parser.scan_lines(initial_parse)
+                        question_section_parser.format_questions(section_type)
+                        parsed_question_sections[k][section_type] = question_section_parser.parsed_questions
 
+                elif section in self.answer_sections:
+                    concat_content_str = ' '.join(content['text'])
+                    parsed_answer_sections[k][section] = self.parse_answer_key_string(concat_content_str)
+        return parsed_question_sections, parsed_answer_sections
+
+    def join_questions_w_answer_keys(self, parsed_questions, parsed_answers):
+        ans_key_set = set([re.findall("[0-9]+\.[1-9]+", ts)[0] for ts in parsed_answers.keys()])
+        quest_key_set = set([re.findall("[0-9]+\.[1-9]+", ts)[0] for ts in parsed_questions.keys()])
+        assert ans_key_set == quest_key_set
+        for lesson, content in parsed_questions.items():
+            for q_type, questions in content.items():
+                for qid, question in questions.items():
+                    correct_answer = parsed_answers[lesson]['Answer Key'][question['idStructural'].strip()]
+                    question['correctAnswer'] = {
+                            "processedText": correct_answer,
+                            "rawText": correct_answer}
 
 class TextbookParser(FlexbookParser):
 
