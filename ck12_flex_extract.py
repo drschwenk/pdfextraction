@@ -818,6 +818,10 @@ class TrueFalseParser(WorkbookQuestionParser):
 
 
 class FillInBlankParser(WorkbookQuestionParser):
+
+    def __init__(self):
+        super(FillInBlankParser, self).__init__()
+
     def assemble_section(self, section_str):
         questions = []
         lines = section_str.split('\n')
@@ -830,8 +834,13 @@ class FillInBlankParser(WorkbookQuestionParser):
             else:
                 appended = False
                 for idx, q in enumerate(questions):
-                    if len(q) < 3:
-                        questions[idx] = q + line
+                    _, starting_chars = self.check_starting_chars(q)
+                    if int(starting_chars.replace('.', ' ')) < 10:
+                        char_limit = 3
+                    else:
+                        char_limit = 4
+                    if len(q) < char_limit:
+                        questions[idx] = q + ' ' + line
                         appended = True
                         break
                 if not appended:
@@ -888,9 +897,10 @@ class QuizTestParser(WorkbookParser):
         }
         self.strings_to_ignore.append('Name___________________ Class______________ Date________')
         self.question_sections = ['Lesson Quiz', 'Chapter Test']
-        self.answer_sections = ['Answer Key']
+        self.answer_sections = ['Answer Key', 'Lesson Quiz Answer Key']
         self.line_separator = '\n'
         self.wb_q_parser = WorkbookQuestionParser
+        self.lesson_n_pattern = re.compile('\s[1-9]+\.[1-9]+\s')
         self.numeric_starters = [str(n) + '.' for n in range(41)]
         self.numeric_starters += [str(n) + ')' for n in range(41)]
 
@@ -906,7 +916,6 @@ class QuizTestParser(WorkbookParser):
                     }
                     if 760 < line_props['rectangle'][3] or line_props['rectangle'][3] < 50 or not line_props['content']:
                         continue
-                    # print line_props
                     if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
                         if line_props['font_size'] == self.section_demarcations['lesson_size']:
                             self.current_lesson = line_props['content'].translate(string.maketrans("", ""),
@@ -922,7 +931,7 @@ class QuizTestParser(WorkbookParser):
                                     self.last_figure_caption_seen = None
                                     self.current_topic_number = 1
                             else:
-                                self.current_topic = line_props['content']
+                                self.current_topic = self.lesson_n_pattern.sub(' ', line_props['content'])
                                 self.parsed_content[self.current_lesson][self.current_topic]['orderID'] = \
                                     't_' + str(self.current_topic_number).zfill(2)
                                 self.last_figure_caption_seen = None
@@ -932,11 +941,9 @@ class QuizTestParser(WorkbookParser):
                                 and self.parsed_content[self.current_lesson][self.current_topic]['text']:
                             self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.line_separator
 
-    def parse_quiz_pdf(self, file_path, question_pages, answer_pages):
+    def parse_quiz_pdf(self, file_path, question_pages):
         super(WorkbookParser, self).parse_pdf(file_path, question_pages)
         parsed_questions, parsed_answers = self.parse_questions_and_answers()
-
-        # self.reset_flex_parser()
 
         self.join_questions_w_answer_keys(parsed_questions, parsed_answers)
         flattened_workbook = {k: self.flatten_lesson_types(v) for k, v in parsed_questions.items()}
@@ -972,7 +979,8 @@ class QuizTestParser(WorkbookParser):
                             current_q_type = text_line
                         else:
                             questions_by_type[current_q_type].append(text_line)
-                    del questions_by_type['orphaned']
+                    if 'orphaned' in questions_by_type.keys():
+                        del questions_by_type['orphaned']
                     for section_type, q_sect in questions_by_type.items():
                         concat_content_str = self.line_separator.join(q_sect)
                         question_section_parser = self.wb_q_parser.get_type_specific_parser(section_type)
@@ -983,7 +991,11 @@ class QuizTestParser(WorkbookParser):
 
                 elif section in self.answer_sections:
                     concat_content_str = ' '.join(content['text'])
-                    parsed_answer_sections[k][section] = self.parse_answer_key_string(concat_content_str)
+                    ak_parser = self.wb_q_parser.get_type_specific_parser('Fill in the Blank')
+                    initial_parse = ak_parser.assemble_section(concat_content_str)
+                    joined_parse = ' '.join(initial_parse)
+                    # parsed_answer_sections[k][section] = self.parse_answer_key_string(concat_content_str)
+                    parsed_answer_sections[k][section] = self.parse_answer_key_string(joined_parse)
         return parsed_question_sections, parsed_answer_sections
 
     def join_questions_w_answer_keys(self, parsed_questions, parsed_answers):
@@ -993,10 +1005,12 @@ class QuizTestParser(WorkbookParser):
         for lesson, content in parsed_questions.items():
             for q_type, questions in content.items():
                 for qid, question in questions.items():
-                    correct_answer = parsed_answers[lesson]['Answer Key'][question['idStructural'].strip()]
-                    question['correctAnswer'] = {
-                            "processedText": correct_answer,
-                            "rawText": correct_answer}
+                    if parsed_answers[lesson].values():
+                        correct_answer = parsed_answers[lesson].values()[0][question['idStructural'].strip()]
+                        question['correctAnswer'] = {
+                                "processedText": correct_answer,
+                                "rawText": correct_answer}
+
 
 class TextbookParser(FlexbookParser):
 
