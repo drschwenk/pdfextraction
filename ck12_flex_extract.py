@@ -9,7 +9,7 @@ from collections import OrderedDict
 from copy import deepcopy
 import PIL.Image as Image
 import numpy as np
-import fuzzywuzzy.fuzz as fuzz
+import fuzzywuzzy.fuzz
 import jsonschema
 import ck12_schema
 import warnings
@@ -835,7 +835,7 @@ class FillInBlankParser(WorkbookQuestionParser):
                 appended = False
                 for idx, q in enumerate(questions):
                     _, starting_chars = self.check_starting_chars(q)
-                    if int(starting_chars.replace('.', ' ')) < 10:
+                    if int(starting_chars.replace('.', ' ').replace(')', ' ')) < 10:
                         char_limit = 3
                     else:
                         char_limit = 4
@@ -843,7 +843,7 @@ class FillInBlankParser(WorkbookQuestionParser):
                         questions[idx] = q + ' ' + line
                         appended = True
                         break
-                if not appended:
+                if not appended and questions:
                     questions[-1] = ' '.join([questions[-1], line])
         return questions
 
@@ -900,7 +900,7 @@ class QuizTestParser(WorkbookParser):
         self.answer_sections = ['Answer Key', 'Lesson Quiz Answer Key']
         self.line_separator = '\n'
         self.wb_q_parser = WorkbookQuestionParser
-        self.lesson_n_pattern = re.compile('\s[1-9]+\.[1-9]+\s')
+        self.lesson_n_pattern = re.compile('\s[0-9]+?\.[0-9]*\s')
         self.numeric_starters = [str(n) + '.' for n in range(41)]
         self.numeric_starters += [str(n) + ')' for n in range(41)]
 
@@ -1198,7 +1198,7 @@ class CK12DataSetAssembler(object):
                 print 'by title'
                 for wb_topic in wb_keys:
                     for fb_topic in fb_keys_missing:
-                        char_match = fuzz.ratio(wb_topic, fb_topic)
+                        char_match = fuzzywuzzy.fuzz.ratio(wb_topic, fb_topic)
                         if char_match > self.char_match_thresh:
                             if wb_topic in ['oceancontinent convergent plate boundaries', 'oceanocean convergent plate boundaries',
                                             'continentcontinent convergent plate boundaries']:
