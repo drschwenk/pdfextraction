@@ -796,7 +796,11 @@ class TrueFalseParser(WorkbookQuestionParser):
                 questions.append(line)
             else:
                 for idx, q in enumerate(questions):
-                    if len(q) < 3:
+                    if starting_chars and int(starting_chars.replace('.', ' ').replace(')', ' ')) < 10:
+                        char_limit = 3
+                    else:
+                        char_limit = 4
+                    if len(q) < char_limit:
                         questions[idx] = q + line
                         break
         return questions
@@ -887,7 +891,7 @@ class MatchingParser(WorkbookQuestionParser):
 class QuizTestParser(WorkbookParser):
     def __init__(self):
         super(QuizTestParser, self).__init__()
-        self.sections_to_keep = ['True or False', 'Multiple Choice', 'Matching', 'Fill in the Blanks']
+        self.sections_to_keep = ['True or False', 'Multiple Choice', 'Matching', 'Fill in the Blanks', 'Fill in the Blank']
         self.sections_to_ignore = ['Short Answer']
         self.section_demarcations = {
             'topic_color': (0.811767578125, 0.3411712646484375, 0.149017333984375),
@@ -1167,10 +1171,25 @@ class CK12DataSetAssembler(object):
         self.schema = ck12_schema.ck12_schema
 
     def join_content_and_questions(self, flexbook, workbook):
-        self.check_and_match_topics(flexbook, workbook)
-        joined_flexbook = {k: dict(v, **workbook[k]) for k, v in flexbook.items()}
-        self.ck12_dataset = self.jsonify(joined_flexbook)
-        return self.ck12_dataset
+        if 'questions' not in flexbook.values()[0].keys():
+            self.check_and_match_topics(flexbook, workbook)
+            joined_flexbook = {k: v.update(**workbook[k]) for k, v in flexbook.items()}
+            self.ck12_dataset = self.jsonify(joined_flexbook)
+            return self.ck12_dataset
+        else:
+            for lesson, content in workbook.items():
+                if lesson not in flexbook.keys():
+                    continue
+                renumber_offset = len(flexbook[lesson]['questions']['nonDiagramQuestions'])
+                for old_qn, question in content['questions']['nonDiagramQuestions'].items():
+                    new_q_n = 'q' + str(int(old_qn[1:]) + renumber_offset).zfill(2)
+                    flexbook[lesson]['questions']['nonDiagramQuestions'][new_q_n] = question
+            return flexbook
+
+
+    def join_quizzes_and_workbooks(self, quizzes, workbooks):
+
+        pass
 
     def handle_special_cases(self, key):
         if key == 'three rnas':
@@ -1224,7 +1243,6 @@ class CK12DataSetAssembler(object):
                     flexbook.pop(fb_topic)
         # assert fb_keys == wb_keys
 
-
     def validate_schema(self, dataset_json):
         try:
             validator = jsonschema.Draft4Validator(self.schema)
@@ -1232,7 +1250,6 @@ class CK12DataSetAssembler(object):
                 print error.message
         except jsonschema.ValidationError as e:
             warnings.warn("Error in schema --%s-", e.message)
-
 
     def validate_dataset(self, dataset_json):
         for subject, flexbook in dataset_json.items():
