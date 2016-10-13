@@ -1187,10 +1187,6 @@ class CK12DataSetAssembler(object):
             return flexbook
 
 
-    def join_quizzes_and_workbooks(self, quizzes, workbooks):
-
-        pass
-
     def handle_special_cases(self, key):
         if key == 'three rnas':
             return 'rna'
@@ -1273,13 +1269,6 @@ class CK12DataSetAssembler(object):
                         print subject, lesson_name
                         print qid + ' tf error'
 
-
-
-    def not_empty_test(self):
-        pass
-
-    def multi_choice_test(self):
-        pass
 
     def jsonify(self, dataset_w_collections):
         return json.loads(json.dumps(dataset_w_collections))

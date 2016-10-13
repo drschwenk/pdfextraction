@@ -3,7 +3,7 @@ ck12_schema = {
     "$schema": "http://json-schema.org/draft-04/schema",
     "additionalProperties": False,
     "patternProperties": {
-        "^[\w\s]+\.?[\w\s]+$": {
+        "^[\w\s]+\.?[\w\s]+": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
@@ -11,7 +11,7 @@ ck12_schema = {
                     "type": "object",
                     "additionalProperties": False,
                     "patternProperties": {
-                        "^(:?\w*\s?\w*)\.?[\s\w*\s]?[\w\s]+$": {
+                        "^(:?\w*\s?\w*)\.?[\s\w*\s]?[\w\s]+(U\.S\.)?$": {
                             "type": "object",
                             "required": ["content", "orderID"],
                             "additionalProperties": False,
@@ -41,6 +41,31 @@ ck12_schema = {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                },
+                "instructionalDiagrams": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "patternProperties": {
+                        "^[\w\s]+\.?[\w\s]+.png": {
+                            "type": "object",
+                            "required": ["imageName", "imageUri", "description", "annotationUri"],
+                            "additionalProperties": False,
+                            "properties": {
+                                "imageName": {
+                                    "type": "string"
+                                },
+                                "imageUri": {
+                                    "type": "string"
+                                },
+                                "description": {
+                                    "type": "string"
+                                },
+                                "annotationUri": {
+                                    "type": "string"
                                 }
                             }
                         }
@@ -154,11 +179,18 @@ ck12_schema = {
 
                                     }
                                 },
-                                "figure": {
+                                "image": {
                                     "type": "object",
+                                    "required": ["imageName", "imageUri", "description", "annotationUri"],
                                     "additionalProperties": False,
                                     "properties": {
+                                        "imageName": {
+                                            "type": "string"
+                                        },
                                         "imageUri": {
+                                            "type": "string"
+                                        },
+                                        "annotationUri": {
                                             "type": "string"
                                         }
                                     }
