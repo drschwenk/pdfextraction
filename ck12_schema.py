@@ -39,6 +39,14 @@ ck12_schema = {
                                                     }
                                                 }
                                             }
+                                        },
+                                        "mediaLinks": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "type": "string"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -50,9 +58,9 @@ ck12_schema = {
                     "type": "object",
                     "additionalProperties": False,
                     "patternProperties": {
-                        "^[\w\s]+\.?[\w\s]+.png": {
+                        "^[\w\s]+\.?[\w\s]+": {
                             "type": "object",
-                            "required": ["imageName", "imageUri", "description", "annotationUri"],
+                            "required": ["imageName", "imageUri", "rawText", "processedText"],
                             "additionalProperties": False,
                             "properties": {
                                 "imageName": {
@@ -61,10 +69,10 @@ ck12_schema = {
                                 "imageUri": {
                                     "type": "string"
                                 },
-                                "description": {
+                                "rawText": {
                                     "type": "string"
                                 },
-                                "annotationUri": {
+                                "processedText": {
                                     "type": "string"
                                 }
                             }
@@ -158,7 +166,6 @@ ck12_schema = {
                                     "type": ["string", "null"],
                                     "pattern": "^({diagramQuestions})$"
                                 },
-
                                 "beingAsked": {
                                     "type": "object",
                                     "additionalProperties": False,
@@ -179,7 +186,10 @@ ck12_schema = {
 
                                     }
                                 },
-                                "image": {
+                                "imageName": {
+                                  "type": "string"
+                                },
+                                "imageUri": {
                                     "type": "object",
                                     "required": ["imageName", "imageUri", "description", "annotationUri"],
                                     "additionalProperties": False,
