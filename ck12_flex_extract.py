@@ -496,7 +496,7 @@ class FlexbookParser(object):
                             self.last_figure_caption_seen = line_props
                             nearest_image_bbox = self.find_matching_image(line_props['rectangle'], page_figures)
                             new_figure_content['rectangle'] = nearest_image_bbox
-                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox, True)
+                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox, False)
                             new_figure_content['file_name'] = figure_file_name
                             self.parsed_content[self.current_lesson][self.current_topic]['figures'].append(new_figure_content)
 
@@ -1127,11 +1127,13 @@ class LessonParser(TextbookParser):
                         continue
                     # print line_props
                     if line_props['content'] and line_props['content'] not in self.strings_to_ignore:
-                        if line_props['font_size'] >= self.section_demarcations['lesson_size']:
-                            self.current_lesson = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
-                            self.last_figure_caption_seen = None
-                            self.current_topic_number = 1
-                            self.parsed_content[self.current_lesson]['hidden'] = {"source": str(idx + 2) + '_' + book_name}
+                        if line_props['font_size'] >= self.section_demarcations['lesson_size'] and len(line_props['content']) > 1:
+                            if not self.current_lesson:
+                                self.current_lesson = line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
+                                self.last_figure_caption_seen = None
+                                self.current_topic_number = 1
+                            else:
+                                self.current_lesson += ' ' + line_props['content'].translate(string.maketrans("", ""), string.punctuation.replace('.', ''))
 
                         elif 'FIGURE ' in line_props['content']:
                             figure_number = line_props['content'].replace('FIGURE ', '')
@@ -1140,7 +1142,7 @@ class LessonParser(TextbookParser):
                             self.last_figure_caption_seen = line_props
                             nearest_image_bbox = self.find_matching_image(line_props['rectangle'], page_figures)
                             new_figure_content['rectangle'] = nearest_image_bbox
-                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox)
+                            figure_file_name = self.crop_and_extract_figure(idx, figure_number, nearest_image_bbox, True)
                             new_figure_content['file_name'] = figure_file_name
                             self.parsed_content[self.current_lesson][self.current_topic]['figures'].append(new_figure_content)
 
@@ -1161,6 +1163,7 @@ class LessonParser(TextbookParser):
                                     self.parsed_content[self.current_lesson][self.current_topic]['figures'][-1]['caption'] += self.line_separator + line_props['content']
                                 elif self.parsed_content[self.current_lesson][self.current_topic]['text']:
                                     self.parsed_content[self.current_lesson][self.current_topic]['text'][0] += line_props['content'] + self.line_separator
+        self.parsed_content[self.current_lesson]['hidden'] = {"source": str(1) + '_' + book_name}
 
 
 class CK12DataSetAssembler(object):
@@ -1175,7 +1178,7 @@ class CK12DataSetAssembler(object):
             self.check_and_match_topics(flexbook, workbook)
             joined_flexbook = {k: v.update(**workbook[k]) for k, v in flexbook.items()}
             self.ck12_dataset = self.jsonify(joined_flexbook)
-            return self.ck12_dataset
+            return flexbook
         else:
             for lesson, content in workbook.items():
                 if lesson not in flexbook.keys():
@@ -1237,6 +1240,7 @@ class CK12DataSetAssembler(object):
                 for fb_topic in fb_keys_missing:
                     print 'removing ' + fb_topic
                     flexbook.pop(fb_topic)
+            # print fb_keys.difference(wb_keys)
         # assert fb_keys == wb_keys
 
     def validate_schema(self, dataset_json):

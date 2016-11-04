@@ -1,5 +1,5 @@
 import jinja2
-from IPython.core.display import HTML
+import os
 
 j2env = jinja2.Environment()
 
@@ -58,25 +58,25 @@ diagram_page_html = """
 """
 
 
-def make_lesson_data(lesson_json):
-    nested_text = []    
-    for topic, content in sorted(lesson_json['topics'].items(), key=lambda (k, v): v['orderID']):
-        nested_text.append((topic, content['content']['text']))
+def make_lesson_data(lesson_json, rel_html_out_path=None):
+    nested_text = []
+    for topic, content in sorted(lesson_json['topics'].items(), key=lambda (k, v): v['globalID']):
+        nested_text.append((content['topicName'], content['content']['text']))
         if content['content']['figures']:
             for figure in content['content']['figures']:
-                image_link = '<img src="' + figure['image_uri'] + '" width=500px>'
+                image_link = '<img src="' + '../../' + figure['imagePath'] + '" width=500px>'
                 image_caption = figure['caption']
                 nested_text.append(('', image_link))
                 nested_text.append(('', image_caption))
     return nested_text
 
 
-def make_lesson_wq_data(lesson_json):
+def make_lesson_wq_data(lesson_json, rel_html_out_path):
     nested_text = []
-    for question in sorted(lesson_json['questions']['diagramQuestions'].values(), key=lambda x: x['id']):
-        image_link = '<img src="' + question['imageUri'] + '" width=500px>'
+    for question in sorted(lesson_json['questions']['diagramQuestions'].values(), key=lambda x: x['globalID']):
+        image_link = '<img src="' + '../../' + question['imagePath'] + '" width=500px>'
         nested_text.append(image_link)
-        nested_text.append(question['id'])
+        nested_text.append(question['globalID'])
         being_asked = question['beingAsked']['processedText']
         nested_text.append(being_asked)
         for ac in sorted(question['answerChoices'].values(), key=lambda x: x['idStructural']):
@@ -88,10 +88,10 @@ def make_lesson_wq_data(lesson_json):
     return nested_text
 
 
-def make_lesson_diagram_description_data(lesson_json):
+def make_lesson_diagram_description_data(lesson_json, rel_html_out_path):
     nested_text = []
     for description in sorted(lesson_json['instructionalDiagrams'].values()):
-        image_link = '<img src="' + description['imageUri'] + '" width=500px>'
+        image_link = '<img src="' + '../../' + description['imagePath'] + '" width=500px>'
         nested_text.append(image_link)
         nested_text.append(description['imageName'])
         being_asked = description['processedText']
@@ -104,15 +104,15 @@ def make_page_html(lesson_data, page_html):
     return j2env.from_string(page_html).render(lesson=lesson_data[0], topics=lesson_data[1])
 
 
-def display_lesson_html(flexbook, lesson, page_type=None, page_html=default_page_html):
-    lesson_json = flexbook[lesson]
-    if not page_type:
-        lesson_data = (lesson, make_lesson_data(lesson_json))
+def display_lesson_html(lesson_json, lesson, page_type=None, html_output_dir=None):
+    if not page_type or page_type == 'lessons':
+        lesson_data = (lesson, make_lesson_data(lesson_json, html_output_dir))
+        page_html = default_page_html
     elif page_type == 'questions':
-        lesson_data = (lesson, make_lesson_wq_data(lesson_json))
+        lesson_data = (lesson, make_lesson_wq_data(lesson_json, html_output_dir))
         page_html = diagram_page_html
     elif page_type == 'descriptions':
-        lesson_data = (lesson, make_lesson_diagram_description_data(lesson_json))
+        lesson_data = (lesson, make_lesson_diagram_description_data(lesson_json, html_output_dir))
         page_html = diagram_page_html
     lesson_html = make_page_html(lesson_data, page_html)
     return lesson_html
