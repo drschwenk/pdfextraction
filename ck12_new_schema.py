@@ -13,10 +13,13 @@ ck12_schema = {
                 "patternProperties": {
                     "^(:?\w*\s?\w*)\.?[\s\w*\s]?[\w\s]+(U\.S\.)?$": {
                         "type": "object",
-                        "required": ["content", "orderID"],
+                        "required": ["content", "globalID", "topicName"],
                         "additionalProperties": False,
                         "properties": {
-                            "orderID": {
+                            "globalID": {
+                                "type": "string"
+                            },
+                            "topicName": {
                                 "type": "string"
                             },
                             "content": {
@@ -27,8 +30,10 @@ ck12_schema = {
                                     "text": {
                                         "type": "string"
                                     },
+
                                     "figures": {
                                         "type": "array",
+                                        "additionalProperties": False,
                                         "items": {
                                             "properties": {
                                                 "caption": {
@@ -60,14 +65,17 @@ ck12_schema = {
                 "patternProperties": {
                     "^[\w\s]+\.?[\w\s]+": {
                         "type": "object",
-                        "required": ["imageName", "imageUri", "rawText", "processedText"],
+                        "required": ["imageName", "imagePath", "rawText", "processedText", "globalID"],
                         "additionalProperties": False,
                         "properties": {
                             "imageName": {
                                 "type": "string"
                             },
-                            "imageUri": {
+                            "imagePath": {
                                 "type": "string"
+                            },
+                            "globalID": {
+                              "type": "string"
                             },
                             "rawText": {
                                 "type": "string"
@@ -87,14 +95,14 @@ ck12_schema = {
                         "type": "object",
                         "additionalProperties": False,
                         "patternProperties": {
-                            "^q[0-9]+$": {
+                            "^NDQ_[0-9]+$": {
                                 "type": "object",
-                                "required": ["beingAsked", "correctAnswer", "id"],
+                                "required": ["beingAsked", "correctAnswer", "globalID"],
                                 "additionalProperties": False,
                                 "properties": {
-                                    "id": {
+                                    "globalID": {
                                         "type": "string",
-                                        "pattern": "^q[0-9]+$"
+                                        "pattern": "^NDQ_[0-9]+$"
                                     },
                                     "idStructural": {
                                         "type": ["string", "null"],
@@ -133,6 +141,12 @@ ck12_schema = {
                                     "answerChoices": {
                                         "type": "object",
                                         "additionalProperties": False,
+                                        "oneOf": [
+                                            {"minProperties": 3, "maxProperties": 4},
+                                            {"minProperties": 2, "maxProperties": 2},
+                                            {"minProperties": 5, "maxProperties": 7},
+                                            {"minProperties": 0, "maxProperties": 0}
+                                        ],
                                         "patternProperties": {
                                             "[a-z]": {
                                                 "type": "object",
@@ -156,53 +170,86 @@ ck12_schema = {
                                     }
                                 }
                             }
-                    }
+                        }
                     },
                     "diagramQuestions": {
                         "type": ["object"],
                         "additionalProperties": False,
-                        "properties": {
-                            "id": {
-                                "type": ["string", "null"],
-                                "pattern": "^({diagramQuestions})$"
-                            },
-                            "beingAsked": {
+                        "patternProperties": {
+                            "^DQ_[0-9]+$": {
                                 "type": "object",
+                                "required": ["beingAsked", "correctAnswer", "globalID", "imagePath", "answerChoices", "imageName"],
                                 "additionalProperties": False,
                                 "properties": {
-                                    "processedText": {
-                                        "type": "string"
-                                    }
-                                }
-                            },
-                            "answerChoices": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "properties": {
-                                    "idStructural": {
+                                    "globalID": {
                                         "type": "string",
-                                        "pattern": "^({answerChoices})$"
+                                        "pattern": "^DQ_[0-9]+$"
                                     },
-
-                                }
-                            },
-                            "imageName": {
-                              "type": "string"
-                            },
-                            "imageUri": {
-                                "type": "object",
-                                "required": ["imageName", "imageUri", "description", "annotationUri"],
-                                "additionalProperties": False,
-                                "properties": {
+                                    "imagePath": {
+                                        "type": "string",
+                                    },
+                                    "idStructural": {
+                                        "type": ["string", "null"],
+                                        "pattern": "^[0-9]+(?:\.|\))\s?$"
+                                    },
+                                    "type": {
+                                        "enum": ["Diagram Multiple Choice"]
+                                    },
+                                    "beingAsked": {
+                                        "type": "object",
+                                        "additionalProperties": False,
+                                        "properties": {
+                                            "rawText": {
+                                                "type": "string",
+                                            },
+                                            "processedText": {
+                                                "type": "string",
+                                                "minLength": 3
+                                            }
+                                        }
+                                    },
+                                    "correctAnswer": {
+                                        "type": "object",
+                                        "additionalProperties": False,
+                                        "properties": {
+                                            "rawText": {
+                                                "type": "string"
+                                            },
+                                            "processedText": {
+                                                "type": "string",
+                                                "minLength": 1
+                                            }
+                                        }
+                                    },
+                                    "answerChoices": {
+                                        "type": "object",
+                                        "additionalProperties": False,
+                                        "minProperties": 4,
+                                        "maxProperties": 4,
+                                        "patternProperties": {
+                                            "[a-z]": {
+                                                "type": "object",
+                                                "required": ["idStructural", "rawText", "processedText"],
+                                                "additionalProperties": False,
+                                                "properties": {
+                                                    "idStructural": {
+                                                        "type": ["string", "null"],
+                                                        "pattern": "[a-z][\.|\)]"
+                                                    },
+                                                    "rawText": {
+                                                        "type": ["string", "null"],
+                                                    },
+                                                    "processedText": {
+                                                        "type": ["string", "null"],
+                                                        "minLength": 1
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
                                     "imageName": {
                                         "type": "string"
                                     },
-                                    "imageUri": {
-                                        "type": "string"
-                                    },
-                                    "annotationUri": {
-                                        "type": "string"
-                                    }
                                 }
                             }
                         }
@@ -222,13 +269,23 @@ ck12_schema = {
                 "type": "string"
             },
             "globalID": {
+                "type": "string",
+                "pattern": "^L_[0-9]+$"
+            },
+            "metaLessonID": {
                 "type": "string"
             },
             "adjunctTopics": {
                 "type": "object",
                 "additionalProperties": False,
+                "properties": {
+                    "Vocabulary": {
+                        "type": "object",
+                        "additionalProperties": True,
+                    },
+                },
                 "patternProperties": {
-                    "^(:?\w*\s?\w*)\.?[\s\w*\s]?[\w\s]+(U\.S\.)?$": {
+                    "^(?!Vocabulary).*": {
                         "type": "object",
                         "required": ["content", "orderID"],
                         "additionalProperties": False,
@@ -275,3 +332,7 @@ ck12_schema = {
         }
     }
 }
+
+# dict_keys(['correctAnswer', 'beingAsked', 'answerChoices', 'imagePath', 'type', 'globalID', 'imageName'])
+
+
