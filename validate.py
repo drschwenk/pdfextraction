@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-
 import os.path
 from collections import defaultdict
 from collections import Counter
@@ -12,82 +11,95 @@ import json
 import sys
 import argparse
 import re
+import jsonschema
 from io import StringIO
+from .ck12_new_schema import ck12_schema as flat_schema
 
 
-def validate(ck12_json):
-    import jsonschema
+class DataSetIntegrityChecker(object):
     """
     validate ck12 dataset using the jsonschema defined below
     """
 
-    def fetch_identifiers(doc):
-        identifiers = defaultdict(set)
-        for k in ['text', 'regions', 'blobs', 'objects', 'arrows', 'arrowHeads']:
-            identifiers[k].update(list(doc[k].keys()))
+    def __init__(self, data_root_dir, data_file, schema=flat_schema):
+        self.data_root_dir = data_root_dir
+        self.data_json_file = data_file
+        self.schema = schema
+        self.dataset = None
+        self.max_depth = 4
+        self.checks_to_make = {
+            'global_ids': self.check_global_ids,
+            'image_paths': self.check_image_paths
+        }
+        self.global_ids_seen = defaultdict(list)
 
-        identifiers['relationships'].update(
-            list(doc['relationships']['intraObject']['linkage'].keys()))
-        identifiers['relationships'].update(
-            list(doc['relationships']['intraObject']['label'].keys()))
-        identifiers['relationships'].update(
-            list(doc['relationships']['interObject']['linkage'].keys()))
+    def load_dataset(self):
+        with open(os.path.join(self.data_root_dir, self.data_json_file), 'r') as f:
+            self.dataset = json.load(f)
 
-        return identifiers
+    def dict_key_extract(self, key, var):
+        if hasattr(var, 'items'):
+            for k, v in var.items():
+                if k == key:
+                    yield v
+                if isinstance(v, dict):
+                    for result in self.dict_key_extract(key, v):
+                        yield result
+                elif isinstance(v, list):
+                    for d in v:
+                        for result in self.dict_key_extract(key, d):
+                            yield result
 
-    def create_schema(doc):
-        ids = fetch_identifiers(doc)
-        id_regex = dict()
-        for k, v in ids.items():
-            id_regex[k] = '|'.join(v)
+    def iterate_over_lessons(self):
+        errors = {}
+        # for lesson in self.dataset:
+        for lesson in self.dataset[:10]:
+            for check_type, check in self.checks_to_make.items():
+                errors[check_type] = check(lesson)
+        self.check_global_counts()
+        return errors
 
-        def recurse(d):
-            if type(d) == list:
-                for x in d:
-                    recurse(x)
-            elif type(d) == dict:
-                for k, v in d.items():
-                    if k == 'pattern':
-                        d[k] = v.format(**id_regex)
-                    recurse(v)
-        evaluated_schema = copy.deepcopy(schema)
-        recurse(evaluated_schema)
-        return evaluated_schema
+    def check_global_counts(self):
+        if 'global_ids' in self.checks_to_make.keys():
+            for id_type, id_list in self.global_ids_seen.items():
+                return id_type + ' global id mismatch'
+        else:
+            return None
 
-    for p in glob.glob(shining3Path + "/*.json"):
-        with open(p) as f:
-            j = json.loads(f.read())
+    def validate_schema(self):
+        errors = []
+        try:
+            validator = jsonschema.Draft4Validator(self.schema)
+            for error in sorted(list(validator.iter_errors(self.dataset)), key=lambda x: x.absolute_schema_path[0]):
+                errors.append([error.message, list(error.absolute_path)[:self.max_depth]])
+        except jsonschema.ValidationError as e:
+            errors.append("Error in schema --%s-" + e.message)
+        return errors
 
-        image_name = p.split('/')[2].split('.json')[0]
-        if int(image_name.split('.')[0]) > 1507:
-            try:
-                validator = jsonschema.Draft4Validator(create_schema(j))
-                for error in sorted(validator.iter_errors(j), key=str):
-                    warnings.warn("Error in schema --%s-- for %s" % (error.message, image_name))
-            except jsonschema.ValidationError as e:
-                warnings.warn("Error in schema --%s-- for %s" % (e.message, image_name))
+    def validate_dataset(self):
+        if not self.dataset:
+            self.load_dataset()
+        all_errors = {}
+        # schema_errors = self.validate_schema()
+        # all_errors['schema'] = schema_errors
+        all_errors.update(self.iterate_over_lessons())
+        for errors in all_errors.values():
+            if errors:
+                return all_errors
+        return 'all validation test passed'
 
+    def check_global_ids(self, lesson):
+        this_lessons_keys = list(self.dict_key_extract('globalID', lesson))
+        for k in this_lessons_keys:
+            id_type = k.split('_')[0]
+            id_num = k.split('_')[1]
+            self.global_ids_seen[id_type].append(id_num)
 
-def run_tests():
-
-    with open("categories.json") as f:
-        categories = json.loads(f.read())
-
-    for p in glob.glob(shining3Path + "/*.json"):
-        with open(p) as f:
-            j = json.loads(f.read())
-
-        image_name = p.split('/')[2].split('.json')[0]
-        if int(image_name.split('.')[0]) > 1507:
-            try:
-                validator = jsonschema.Draft4Validator(create_schema(j))
-                for error in sorted(validator.iter_errors(j), key=str):
-                    warnings.warn("Error in schema --%s-- for %s" % (error.message, image_name))
-            except jsonschema.ValidationError as e:
-                warnings.warn("Error in schema --%s-- for %s" % (e.message, image_name))
-
-    validateDataset('./annotations')
-
+    def check_image_paths(self, lesson):
+        image_paths = list(self.dict_key_extract('imagePath', lesson))
+        for rel_path in image_paths:
+            file_path = os.path.join(self.data_root_dir, rel_path)
+            print(file_path)
 
 def main():
     parser = argparse.ArgumentParser(description='Run Shining3 validation tests')
@@ -98,7 +110,6 @@ def main():
         warning_buffer = StringIO()
         saved_stderr = sys.stderr
         sys.stderr = warning_buffer
-        run_tests()
         warnings = warning_buffer.getvalue()
         warning_buffer.close()
         sys.stderr = saved_stderr

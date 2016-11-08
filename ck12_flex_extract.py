@@ -1189,7 +1189,6 @@ class CK12DataSetAssembler(object):
                     flexbook[lesson]['questions']['nonDiagramQuestions'][new_q_n] = question
             return flexbook
 
-
     def handle_special_cases(self, key):
         if key == 'three rnas':
             return 'rna'
@@ -1272,7 +1271,6 @@ class CK12DataSetAssembler(object):
                     if len(question['answerChoices']) != 2:
                         print subject, lesson_name
                         print qid + ' tf error'
-
 
     def jsonify(self, dataset_w_collections):
         return json.loads(json.dumps(dataset_w_collections))

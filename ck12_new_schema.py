@@ -108,7 +108,7 @@ ck12_schema = {
                                         "type": ["string", "null"],
                                         "pattern": "^[0-9]+(?:\.|\))\s?$"
                                     },
-                                    "type": {
+                                    "questionType": {
                                         "enum": ["True or False", "Multiple Choice", "Matching",
                                                  "Fill in the Blank", "Short Answer"]
                                     },
@@ -142,10 +142,10 @@ ck12_schema = {
                                         "type": "object",
                                         "additionalProperties": False,
                                         "oneOf": [
-                                            {"minProperties": 3, "maxProperties": 4},
-                                            {"minProperties": 2, "maxProperties": 2},
-                                            {"minProperties": 5, "maxProperties": 7},
-                                            {"minProperties": 0, "maxProperties": 0}
+                                            {"questionType": "Multiple Choice", "minProperties": 3, "maxProperties": 4},
+                                            {"questionType": "True or False", "minProperties": 2, "maxProperties": 2},
+                                            {"questionType": "Matching", "minProperties": 5, "maxProperties": 7},
+                                            {"questionType": {"enum": ["Fill in the Blank", "Short Answer"]}, "minProperties": 0, "maxProperties": 0}
                                         ],
                                         "patternProperties": {
                                             "[a-z]": {
@@ -192,7 +192,7 @@ ck12_schema = {
                                         "type": ["string", "null"],
                                         "pattern": "^[0-9]+(?:\.|\))\s?$"
                                     },
-                                    "type": {
+                                    "questionType": {
                                         "enum": ["Diagram Multiple Choice"]
                                     },
                                     "beingAsked": {
@@ -328,7 +328,6 @@ ck12_schema = {
                     }
                 }
             }
-
         }
     }
 }

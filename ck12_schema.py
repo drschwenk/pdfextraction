@@ -223,3 +223,33 @@ ck12_schema = {
     }
 }
 
+# [
+#     {
+#         "type": "object",
+#         "properties": {
+#             "type": "Multiple Choice",
+#             "answerChoices": {"minProperties": 4, "maxProperties": 4},
+#         }
+#     },
+#     {
+#         "type": "object",
+#         "properties": {
+#             "type": "True or False",
+#             "answerChoices": {"minProperties": 2, "maxProperties": 2},
+#         }
+#     },
+#     {
+#         "type": "object",
+#         "properties": {
+#             "type": "Matching",
+#             "answerChoices": {"minProperties": 6, "maxProperties": 8},
+#         }
+#     },
+#     {
+#         "type": "object",
+#         "properties": {
+#             "type": {"enum": ["Fill in the Blank", "Short Answer"]},
+#             "answerChoices": {"maxProperties": 0},
+#         }
+#     }
+# ],
