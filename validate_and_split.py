@@ -132,19 +132,26 @@ class TestTrainSplitter(DataSetCommonTools):
             debug_test_assignments.append((lesson_id, lesson_name, lesson_meta_id))
         return {'train': debug_train_assignments, 'test': debug_test_assignments}
 
-    def perform_split(self, test_fraction=0.2, manual_assignments=None):
-        self.load_dataset()
-        meta_lessons = np.array(list(set([lesson['metaLessonID'] for lesson in self.dataset])))
+    def perform_split(self, test_fraction=0.2, manual_assignments={}, debug=False):
+        if not self.dataset:
+            self.load_dataset()
+        meta_lessons = np.array(list(set([lesson['metaLessonID'] for lesson in self.dataset if lesson['metaLessonID']
+                                          not in manual_assignments.keys()])))
         meta_train_lessons, meta_test_lessons = train_test_split(meta_lessons, test_size=test_fraction)
+        meta_train_lessons = meta_train_lessons.tolist()
+        meta_test_lessons = meta_test_lessons.tolist()
+        meta_train_lessons += [metalesson for metalesson, lesson_info in manual_assignments.items() if lesson_info['split'] == 'train']
+        meta_test_lessons += [metalesson for metalesson, lesson_info in manual_assignments.items() if lesson_info['split'] == 'test']
+
         train_lessons = [lesson['globalID'] for lesson in self.dataset if lesson['metaLessonID'] in meta_train_lessons]
         test_lessons = [lesson['globalID'] for lesson in self.dataset if lesson['metaLessonID'] in meta_test_lessons]
-        debug_info = self.make_debug(train_lessons, test_lessons)
+        if debug:
+            debug_info = self.make_debug(train_lessons, test_lessons)
+        else:
+            debug_info = None
         return {'train': train_lessons, 'test': test_lessons}, debug_info
 
     def compute_split_stats(self, test_train_assignments):
-        train_ids = test_train_assignments['train']
-        test_ids = test_train_assignments['test']
-        id_prefix = {'text': 'NDQ_', 'diagram': 'DQ_', 'lesson': 'L_', 'description': 'DD_', 'topics': 'T_'}
         stat_counts = {
             'n_text_questions': {
                 'train': 0,
@@ -177,10 +184,14 @@ class TestTrainSplitter(DataSetCommonTools):
                 for stat_type, stats in stat_counts.items():
                     lesson_content = [lesson for lesson in self.dataset if lesson['globalID'] == lesson_id][0]
                     stats[split] += len(list(self.dict_key_extract(stats['id_to_find'], lesson_content))[0].values())
-
         for stat_type, stat in stat_counts.items():
             stat['test_fraction'] = "{0:.3f}".format(stat['test'] / (stat['train'] + stat['test']))
         return stat_counts
+
+    def split_and_compute_stats(self, manual_assignments={}):
+        tt_split, debug_tt_splits = self.perform_split(manual_assignments=manual_assignments)
+        stats = self.compute_split_stats(tt_split)
+        return stats
 
 
 def main():
