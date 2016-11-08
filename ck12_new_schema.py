@@ -7,6 +7,7 @@ ck12_schema = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
+            "required": ["topics", "globalID", "lessonName", "instructionalDiagrams", "questions", "metaLessonID"],
             "topics": {
                 "type": "object",
                 "additionalProperties": False,
@@ -331,7 +332,4 @@ ck12_schema = {
         }
     }
 }
-
-# dict_keys(['correctAnswer', 'beingAsked', 'answerChoices', 'imagePath', 'type', 'globalID', 'imageName'])
-
 
