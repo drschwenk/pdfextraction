@@ -110,6 +110,9 @@ ck12_schema = {
                                         "pattern": "^[0-9]+(?:\.|\))\s?$"
                                     },
                                     "questionType": {
+                                        "enum": ["Multiple Choice", "Direct Answer"]
+                                    },
+                                    "questionSubType": {
                                         "enum": ["True or False", "Multiple Choice", "Matching",
                                                  "Fill in the Blank", "Short Answer"]
                                     },
@@ -129,6 +132,7 @@ ck12_schema = {
                                     "correctAnswer": {
                                         "type": "object",
                                         "additionalProperties": False,
+                                        "required": ["processedText", "rawText"],
                                         "properties": {
                                             "rawText": {
                                                 "type": "string"

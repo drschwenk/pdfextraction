@@ -253,7 +253,7 @@ class CK12QuizParser(object):
             q_type = 'True or False'
             parsed_question['beingAsked']['processedText'] = \
                 parsed_question['beingAsked']['processedText'].replace('true or false: ', '')
-        if '____' in parsed_question['beingAsked']['processedText'] and q_type == 'None':
+        if '__' in parsed_question['beingAsked']['processedText'] and q_type == 'None':
             q_type = 'Fill in the Blank'
         if parsed_question['beingAsked'] and 'answerChoices' not in parsed_question.keys() and q_type == 'None':
             q_type = 'Short Answer'

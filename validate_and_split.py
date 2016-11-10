@@ -71,9 +71,12 @@ class DataSetIntegrityChecker(DataSetCommonTools):
     def check_global_counts(self):
         if 'global_ids' in self.checks_to_make.keys():
             for id_type, id_list in self.global_ids_seen.items():
-                return id_type + ' global id mismatch'
-        else:
-            return None
+                if len(id_list) != int(sorted(id_list)[-1]):
+                    warnings.warn('global id mismatch for {}'.format(id_type))
+                if len(set(id_list)) != len(id_list):
+                    warnings.warn('non unique ids present for {}'.format(id_type))
+                    print()
+        return self.global_ids_seen
 
     def validate_schema(self):
         errors = []
@@ -151,7 +154,9 @@ class TestTrainSplitter(DataSetCommonTools):
             debug_info = None
         return {'train': train_lessons, 'test': test_lessons}, debug_info
 
-    def compute_split_stats(self, test_train_assignments):
+    def compute_split_stats(self, test_train_assignments, diagram_only=False):
+        if not self.dataset:
+            self.load_dataset()
         stat_counts = {
             'n_text_questions': {
                 'train': 0,
@@ -173,17 +178,22 @@ class TestTrainSplitter(DataSetCommonTools):
                 'test': 0,
                 'id_to_find': 'instructionalDiagrams'
             },
-            # 'n_flexbooklessons': {
-            #     'train': 0,
-            #     'test': 0,
-            #     'id_to_find': ''
-            # },
         }
+        if diagram_only:
+            diagram_only_split = {k: [lid for lid in v if [al for al in self.dataset if al['globalID'] == lid][0]['instructionalDiagrams']]
+                                  for k, v in test_train_assignments.items()}
+            test_train_assignments = diagram_only_split
         for split in ['test', 'train']:
             for lesson_id in test_train_assignments[split]:
                 for stat_type, stats in stat_counts.items():
                     lesson_content = [lesson for lesson in self.dataset if lesson['globalID'] == lesson_id][0]
                     stats[split] += len(list(self.dict_key_extract(stats['id_to_find'], lesson_content))[0].values())
+
+        stat_counts['n_lessons'] = {
+            "test": len(test_train_assignments['test']),
+            "train": len(test_train_assignments['train']),
+            'id_to_find': 'n_lessons'
+        }
         for stat_type, stat in stat_counts.items():
             stat['test_fraction'] = "{0:.3f}".format(stat['test'] / (stat['train'] + stat['test']))
         return stat_counts
