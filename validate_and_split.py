@@ -51,7 +51,7 @@ class DataSetIntegrityChecker(DataSetCommonTools):
     def __init__(self, data_root_dir, data_file, schema=flat_schema):
         super(DataSetIntegrityChecker, self).__init__(data_root_dir, data_file)
         self.schema = schema
-        self.max_depth = 4
+        self.max_depth = 6
         self.checks_to_make = {
             'global_ids': self.check_global_ids,
             'image_paths': self.check_image_paths
@@ -188,7 +188,6 @@ class TestTrainSplitter(DataSetCommonTools):
                 for stat_type, stats in stat_counts.items():
                     lesson_content = [lesson for lesson in self.dataset if lesson['globalID'] == lesson_id][0]
                     stats[split] += len(list(self.dict_key_extract(stats['id_to_find'], lesson_content))[0].values())
-
         stat_counts['n_lessons'] = {
             "test": len(test_train_assignments['test']),
             "train": len(test_train_assignments['train']),

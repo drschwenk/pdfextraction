@@ -98,7 +98,8 @@ ck12_schema = {
                         "patternProperties": {
                             "^NDQ_[0-9]+$": {
                                 "type": "object",
-                                "required": ["beingAsked", "correctAnswer", "globalID"],
+                                "required": ["beingAsked", "correctAnswer", "globalID", "answerChoices", "questionType",
+                                             "questionSubType"],
                                 "additionalProperties": False,
                                 "properties": {
                                     "globalID": {
@@ -119,6 +120,7 @@ ck12_schema = {
                                     "beingAsked": {
                                         "type": "object",
                                         "additionalProperties": False,
+                                        "required": ["rawText", "processedText"],
                                         "properties": {
                                             "rawText": {
                                                 "type": "string"
@@ -143,15 +145,19 @@ ck12_schema = {
                                             }
                                         }
                                     },
+                                    "allOf": [
+                                        {"questionSubType": {"enum": ["Multiple Choice"]},
+                                         "answerChoices": {"minProperties": 3, "maxProperties": 4}},
+                                        {"questionSubType": {"enum": ["True or False"]},
+                                         "answerChoices": {"minProperties": 2, "maxProperties": 2}},
+                                        {"questionSubType": {"enum": ["Matching"]},
+                                         "answerChoices":{"minProperties": 5, "maxProperties": 7}},
+                                        {"questionSubType": {"enum": ["Fill in the Blank", "Short Answer"]},
+                                         "answerChoices":{"minProperties": 0, "maxProperties": 0}}
+                                    ],
                                     "answerChoices": {
                                         "type": "object",
                                         "additionalProperties": False,
-                                        "oneOf": [
-                                            {"questionType": "Multiple Choice", "minProperties": 3, "maxProperties": 4},
-                                            {"questionType": "True or False", "minProperties": 2, "maxProperties": 2},
-                                            {"questionType": "Matching", "minProperties": 5, "maxProperties": 7},
-                                            {"questionType": {"enum": ["Fill in the Blank", "Short Answer"]}, "minProperties": 0, "maxProperties": 0}
-                                        ],
                                         "patternProperties": {
                                             "[a-z]": {
                                                 "type": "object",
